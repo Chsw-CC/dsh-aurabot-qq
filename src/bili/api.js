@@ -42,6 +42,8 @@ export function findVideoId(text) {
 
 const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;/g, "'")
 
+const FACE_MAX = 2 * 1024 * 1024
+
 export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
   let wbi = null // { img, sub, at }
   let buvid = ''
@@ -52,10 +54,12 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     return Object.entries(c).map(([k, v]) => `${k}=${v}`).join('; ')
   }
 
-  async function req(url, { method = 'GET', form, timeoutMs = 20000 } = {}) {
+  async function req(url, { method = 'GET', form, multipart, timeoutMs = 20000 } = {}) {
     const headers = { 'user-agent': UA, referer: 'https://www.bilibili.com/', origin: 'https://www.bilibili.com', cookie: cookieHeader() }
     let body
-    if (form) {
+    if (multipart) {
+      body = multipart // FormData：content-type 带 boundary 由 fetch 自己填
+    } else if (form) {
       headers['content-type'] = 'application/x-www-form-urlencoded'
       body = new URLSearchParams(form).toString()
     }
@@ -169,6 +173,24 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     await req('https://api.bilibili.com/x/member/web/sign/update', { method: 'POST', form: { user_sign: sign, csrf } })
   }
 
+  /** 换头像：先把图片下载下来（≤2MB，只收图片），再按网页端的方式 multipart 上传。要登录。 */
+  async function setFace(imageUrl) {
+    const csrf = parseCookie(getCookie()).bili_jct
+    if (!csrf) throw new Error('没登录 B 站（Cookie 里要有 bili_jct）')
+    const r = await fetchImpl(imageUrl, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(20000) })
+    if (!r.ok) throw new Error('图片下载失败：HTTP ' + r.status)
+    const type = String(r.headers?.get?.('content-type') || '').split(';')[0].trim() || 'image/jpeg'
+    if (!/^image\//i.test(type)) throw new Error('这个网址不是图片')
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (!buf.length) throw new Error('图片是空的')
+    if (buf.length > FACE_MAX) throw new Error('图片超过 2MB，B 站不收')
+    const fd = new FormData()
+    fd.append('dopost', 'save')
+    fd.append('DisplayRank', '10000')
+    fd.append('face', new Blob([buf], { type }), 'face.' + (type.split('/')[1] || 'jpg').replace(/[^a-z0-9]/gi, ''))
+    await req(`https://api.bilibili.com/x/member/web/face/update?csrf=${encodeURIComponent(csrf)}`, { method: 'POST', multipart: fd, timeoutMs: 30000 })
+  }
+
   /** 别人回复她的消息：[{id, time, name, mid, text, myText, oid, root, parent, title, uri}] */
   async function replyFeed() {
     const d = await req('https://api.bilibili.com/x/msgfeed/reply?platform=web&build=0&mobi_app=web')
@@ -185,5 +207,5 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     return r.headers.get('location') || ''
   }
 
-  return { nav, search, popular, view, subtitle, comments, postComment, likeVideo, setSign, replyFeed, resolveShort }
+  return { nav, search, popular, view, subtitle, comments, postComment, likeVideo, setSign, setFace, replyFeed, resolveShort }
 }

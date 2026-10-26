@@ -776,7 +776,8 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         row('qqNickname', 'QQ 昵称'),
         row('qqSignature', 'QQ 个性签名'),
         row('qqAvatar', 'QQ 头像', '只用网址图片，或「刚才发的那张图」。'),
-        row('biliSign', 'B 站签名', '要先在 B 站页登录并打开 B 站。B 站头像暂不支持。'),
+        row('biliSign', 'B 站签名', '要先在 B 站页登录并打开 B 站。'),
+        row('biliAvatar', 'B 站头像', '要先在 B 站页登录并打开 B 站。图片网址或刚才发的图，最大 2MB。'),
       )
     }
 

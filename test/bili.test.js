@@ -190,3 +190,40 @@ test('#6 改 B 站签名：发对接口和 csrf；超长 / 空 / 试运行 / 没
   assert.equal((await bn.setSign('试试')).ok, false)
   assert.equal(sent.length, 0)
 })
+
+test('#6 换 B 站头像：先下载图片再 multipart 上传到 face/update；超 2MB / 非图片 / 试运行 / 没登录都不发', async () => {
+  const reqs = []
+  const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3])
+  const mk = (img) => async (url, o = {}) => {
+    reqs.push({ url, ...o })
+    if (url.startsWith('https://img.example/')) return { ok: true, status: 200, headers: { get: () => img.type }, arrayBuffer: async () => img.buf }
+    return { status: 200, json: async () => ({ code: 0, data: {} }) }
+  }
+  const real = api.createBiliApi({ getCookie: () => 'SESSDATA=x; bili_jct=tok', log: { debug() {}, warn() {} }, fetchImpl: mk({ type: 'image/png', buf: png.buffer }) })
+  await real.setFace('https://img.example/a.png')
+  const up = reqs[1]
+  assert.equal(up.url, 'https://api.bilibili.com/x/member/web/face/update?csrf=tok')
+  assert.equal(up.method, 'POST')
+  assert.ok(up.body instanceof FormData)
+  assert.equal(up.body.get('dopost'), 'save')
+  assert.equal(up.body.get('face').size, png.length)
+  assert.equal(up.body.get('face').type, 'image/png')
+  const big = api.createBiliApi({ getCookie: () => 'bili_jct=tok', log: {}, fetchImpl: mk({ type: 'image/jpeg', buf: new ArrayBuffer(2 * 1024 * 1024 + 1) }) })
+  await assert.rejects(big.setFace('https://img.example/b.jpg'), /2MB/)
+  const html = api.createBiliApi({ getCookie: () => 'bili_jct=tok', log: {}, fetchImpl: mk({ type: 'text/html', buf: png.buffer }) })
+  await assert.rejects(html.setFace('https://img.example/c'), /不是图片/)
+  await assert.rejects(api.createBiliApi({ getCookie: () => '', log: {} }).setFace('https://img.example/a.png'), /没登录/)
+
+  const sent = []
+  const mkDuty = (cfg) => duty.createBili({ getConfig: () => cfg, hub: {}, log: { info() {}, warn() {}, debug() {} }, api: { setFace: async (f) => sent.push(f) } })
+  assert.match((await mkDuty(normalize({ dryRun: true, bili: { enabled: true, cookie: 'bili_jct=y' } })).setAvatar('https://x/a.png')).message, /试运行/)
+  assert.equal((await mkDuty(normalize({ dryRun: false, bili: { enabled: true, cookie: '' } })).setAvatar('https://x/a.png')).ok, false)
+  assert.equal((await mkDuty(normalize({ dryRun: false, bili: { enabled: true, cookie: 'bili_jct=y' } })).setAvatar('C:\\a.png')).ok, false)
+  assert.equal(sent.length, 0)
+  const ok = await mkDuty(normalize({ dryRun: false, bili: { enabled: true, cookie: 'bili_jct=y' } })).setAvatar('https://x/a.png')
+  assert.equal(ok.ok, true)
+  assert.deepEqual(sent, ['https://x/a.png'])
+  const { normalize: n2 } = await import('../src/core/config.js')
+  assert.equal(n2({}).profilePerms.biliAvatar, 'owner')
+  assert.equal(n2({ profilePerms: { biliAvatar: 'x' } }).profilePerms.biliAvatar, 'owner')
+})

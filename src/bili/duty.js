@@ -249,6 +249,20 @@ export function createBili({ getConfig, hub, memory, log, api: injected }) {
     return { ok: true, message: `B 站签名改好了：${sign}` }
   }
 
+  /** 换 B 站头像。file 是已经过 avatarSource 校验的 http(s) 网址。 */
+  async function setAvatar(file) {
+    if (!/^https?:\/\//i.test(String(file || ''))) return { ok: false, message: '头像只能用网址图片，或者刚才发的那张图' }
+    if (getConfig().dryRun) return { ok: true, message: `试运行：本来要把 B 站头像换成：${file}` }
+    if (!parseCookie(cfg().cookie).bili_jct) return { ok: false, message: '没登录 B 站，换不了头像' }
+    try {
+      await api.setFace(file)
+    } catch (error) {
+      return { ok: false, message: `B 站头像没换成：${error.message}` }
+    }
+    memory?.addEvent?.({ text: '换了B站头像', tags: ['B站'], importance: 0.35 })
+    return { ok: true, message: 'B 站头像换好了（B 站可能要审核一会儿才显示）' }
+  }
+
   /** 每分钟调一次：醒着的时候按间隔刷、看回复。 */
   async function tick() {
     const g = getConfig()
@@ -262,7 +276,7 @@ export function createBili({ getConfig, hub, memory, log, api: injected }) {
   }
 
   return {
-    run, checkReplies, watch, comment, setSign, tick, account,
+    run, checkReplies, watch, comment, setSign, setAvatar, tick, account,
     state: () => { const s = today(load()); return { runs: s.runs, comments: s.comments, replies: s.replies, lastRun: s.lastRun, history: s.history.slice(0, 20), canPost: canPost(s), pauseReason: s.pauseDay === dayKey() ? s.pauseReason : '' } },
   }
 }
