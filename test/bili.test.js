@@ -58,6 +58,7 @@ function fakes({ decisions, replyText = '是呀 我也觉得', cfgOver = {}, pos
     comments: async () => [{ name: '网友', text: '好香' }],
     postComment: async (aid, message, o) => { if (postError) { posted.push({ failed: true }); throw postError } posted.push({ aid, message, ...(o || {}) }); return { rpid: 1 } },
     likeVideo: async () => {},
+    setSign: async (sign) => { posted.push({ sign }) },
     replyFeed: async () => [{ id: 'f1', name: '路人甲', text: '你也爱吃米饭？', myText: '看饿了', oid: 1, root: 100, parent: 101, title: '米饭大赛', type: 1 }],
     resolveShort: async () => 'https://www.bilibili.com/video/BV1bbbbbbbbb',
   }
@@ -159,4 +160,33 @@ test('B 站 Cookie 分两个框填：纯值、带前缀、整串都认；老配�
   assert.equal(next.bili.cookie, 'SESSDATA=old1234; bili_jct=new0000', '只改一个，另一个保留')
   const cleared = mergeFromPanel(next, { bili: { sessdata: null, biliJct: null, cookie: null } })
   assert.equal(cleared.bili.cookie, '')
+})
+
+test('#6 改 B 站签名：发对接口和 csrf；超长 / 空 / 试运行 / 没登录都不发', async () => {
+  const reqs = []
+  const real = api.createBiliApi({ getCookie: () => 'SESSDATA=x; bili_jct=tok', log: { debug() {}, warn() {} }, fetchImpl: async (url, o) => { reqs.push({ url, ...o }); return { status: 200, json: async () => ({ code: 0, data: {} }) } } })
+  await real.setSign('今天也很开心')
+  assert.equal(reqs[0].url, 'https://api.bilibili.com/x/member/web/sign/update')
+  assert.equal(reqs[0].method, 'POST')
+  const form = new URLSearchParams(reqs[0].body)
+  assert.equal(form.get('user_sign'), '今天也很开心')
+  assert.equal(form.get('csrf'), 'tok')
+  await assert.rejects(api.createBiliApi({ getCookie: () => '', log: {} }).setSign('x'), /没登录/)
+
+  const { b, posted, events } = fakes({})
+  assert.equal((await b.setSign('')).ok, false)
+  assert.equal((await b.setSign('字'.repeat(71))).ok, false)
+  const r = await b.setSign('换个签名')
+  assert.equal(r.ok, true)
+  assert.deepEqual(posted, [{ sign: '换个签名' }])
+  assert.ok(events.some((e) => e.includes('B站签名')))
+
+  const cfgDry = normalize({ dryRun: true, bili: { enabled: true, cookie: 'bili_jct=y' } })
+  const sent = []
+  const bd = duty.createBili({ getConfig: () => cfgDry, hub: {}, log: { info() {}, warn() {}, debug() {} }, api: { setSign: async (s) => sent.push(s) } })
+  assert.match((await bd.setSign('试试')).message, /试运行/)
+  const cfgNo = normalize({ dryRun: false, bili: { enabled: true, cookie: '' } })
+  const bn = duty.createBili({ getConfig: () => cfgNo, hub: {}, log: { info() {}, warn() {}, debug() {} }, api: { setSign: async (s) => sent.push(s) } })
+  assert.equal((await bn.setSign('试试')).ok, false)
+  assert.equal(sent.length, 0)
 })

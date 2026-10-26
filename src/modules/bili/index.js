@@ -2,6 +2,7 @@
 
 import { createBili } from '../../bili/duty.js'
 import { defineTool, str } from '../../tools/tools.js'
+import { profileToolVisible, profilePermits } from '../../chat/access.js'
 
 export default {
   id: 'bili',
@@ -37,6 +38,25 @@ export default {
           },
         }),
       ]
+    })
+
+    // 改 B 站签名：权限在面板「权限」页（关 / 仅主人私聊 / 所有人），默认仅主人私聊
+    api.tool(({ chat, sessionId }) => {
+      const cfg = api.config()
+      if (!cfg.bili.enabled || !profileToolVisible(cfg, 'biliSign', chat)) return []
+      return [defineTool({
+        name: 'bili_set_sign',
+        description: '改你自己 B 站账号的个性签名（最多 70 字）。有人让你改 B 站签名时用。',
+        properties: { text: str('新的签名') },
+        required: ['text'],
+        execute: async ({ text }) => {
+          const c = api.config()
+          if (!c.bili.enabled) return { ok: false, message: 'B 站没打开' }
+          const p = profilePermits(c, 'biliSign', chat, hub.turnSendersAllOwner(sessionId))
+          if (!p.ok) return p
+          return bili.setSign(text)
+        },
+      })]
     })
 
     api.route('/bili/state', async () => ({ ok: true, ...bili.state(), account: await bili.account() }))

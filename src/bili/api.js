@@ -162,6 +162,13 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     await req('https://api.bilibili.com/x/web-interface/archive/like', { method: 'POST', form: { aid, like: 1, csrf } })
   }
 
+  /** 改自己的个性签名（B 站上限 70 字）。要登录。 */
+  async function setSign(sign) {
+    const csrf = parseCookie(getCookie()).bili_jct
+    if (!csrf) throw new Error('没登录 B 站（Cookie 里要有 bili_jct）')
+    await req('https://api.bilibili.com/x/member/web/sign/update', { method: 'POST', form: { user_sign: sign, csrf } })
+  }
+
   /** 别人回复她的消息：[{id, time, name, mid, text, myText, oid, root, parent, title, uri}] */
   async function replyFeed() {
     const d = await req('https://api.bilibili.com/x/msgfeed/reply?platform=web&build=0&mobi_app=web')
@@ -178,5 +185,5 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     return r.headers.get('location') || ''
   }
 
-  return { nav, search, popular, view, subtitle, comments, postComment, likeVideo, replyFeed, resolveShort }
+  return { nav, search, popular, view, subtitle, comments, postComment, likeVideo, setSign, replyFeed, resolveShort }
 }
