@@ -193,11 +193,11 @@ test('#6 改 B 站签名：发对接口和 csrf；超长 / 空 / 试运行 / 没
 
 test('#6 换 B 站头像：先下载图片再 multipart 上传到 face/update；超 2MB / 非图片 / 试运行 / 没登录都不发', async () => {
   const reqs = []
-  const png = new Uint8Array([137, 80, 78, 71, 1, 2, 3])
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
   const mk = (img) => async (url, o = {}) => {
     reqs.push({ url, ...o })
-    if (url.startsWith('https://img.example/')) return { ok: true, status: 200, headers: { get: () => img.type }, arrayBuffer: async () => img.buf }
-    return { status: 200, json: async () => ({ code: 0, data: {} }) }
+    if (/^https:\/\/(img\.example|multimedia\.nt\.qq\.com)\//.test(url)) return { ok: true, status: 200, headers: { get: () => img.type }, arrayBuffer: async () => img.buf }
+    return { ok: true, status: 200, json: async () => ({ code: 0, data: {} }) }
   }
   const real = api.createBiliApi({ getCookie: () => 'SESSDATA=x; bili_jct=tok', log: { debug() {}, warn() {} }, fetchImpl: mk({ type: 'image/png', buf: png.buffer }) })
   await real.setFace('https://img.example/a.png')
@@ -210,8 +210,17 @@ test('#6 换 B 站头像：先下载图片再 multipart 上传到 face/update；
   assert.equal(up.body.get('face').type, 'image/png')
   const big = api.createBiliApi({ getCookie: () => 'bili_jct=tok', log: {}, fetchImpl: mk({ type: 'image/jpeg', buf: new ArrayBuffer(2 * 1024 * 1024 + 1) }) })
   await assert.rejects(big.setFace('https://img.example/b.jpg'), /2MB/)
-  const html = api.createBiliApi({ getCookie: () => 'bili_jct=tok', log: {}, fetchImpl: mk({ type: 'text/html', buf: png.buffer }) })
+  const html = api.createBiliApi({ getCookie: () => 'bili_jct=tok', log: {}, fetchImpl: mk({ type: 'text/html', buf: new TextEncoder().encode('<html>hi</html>').buffer }) })
   await assert.rejects(html.setFace('https://img.example/c'), /不是图片/)
+  // QQ 图床常回 application/octet-stream：按 PNG/JPEG/GIF/WebP 文件头认
+  const qq = api.createBiliApi({ getCookie: () => 'bili_jct=tok', log: {}, fetchImpl: mk({ type: 'application/octet-stream', buf: png.buffer }) })
+  reqs.length = 0
+  await qq.setFace('https://multimedia.nt.qq.com/v1/foo')
+  assert.equal(reqs[1].body.get('face').type, 'image/png')
+  assert.equal(api.sniffImageType(png), 'image/png')
+  assert.equal(api.sniffImageType(new Uint8Array([0xff, 0xd8, 0xff, 0x01])), 'image/jpeg')
+  assert.equal(api.sniffImageType(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])), 'image/gif')
+  assert.equal(api.sniffImageType(new Uint8Array([0x52,0x49,0x46,0x46,0,0,0,0,0x57,0x45,0x42,0x50])), 'image/webp')
   await assert.rejects(api.createBiliApi({ getCookie: () => '', log: {} }).setFace('https://img.example/a.png'), /没登录/)
 
   const sent = []

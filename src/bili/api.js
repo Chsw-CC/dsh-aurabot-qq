@@ -44,6 +44,16 @@ const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/&quot;
 
 const FACE_MAX = 2 * 1024 * 1024
 
+/** 有的图床（含 QQ multimedia.nt.qq.com）Content-Type 会给 application/octet-stream，按文件头认一下。 */
+export function sniffImageType(buf) {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf || [])
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png'
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif'
+  if (b.length >= 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return 'image/webp'
+  return ''
+}
+
 export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
   let wbi = null // { img, sub, at }
   let buvid = ''
@@ -178,12 +188,13 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     const csrf = parseCookie(getCookie()).bili_jct
     if (!csrf) throw new Error('没登录 B 站（Cookie 里要有 bili_jct）')
     const r = await fetchImpl(imageUrl, { headers: { 'user-agent': UA }, signal: AbortSignal.timeout(20000) })
-    if (!r.ok) throw new Error('图片下载失败：HTTP ' + r.status)
-    const type = String(r.headers?.get?.('content-type') || '').split(';')[0].trim() || 'image/jpeg'
-    if (!/^image\//i.test(type)) throw new Error('这个网址不是图片')
+    if (r.ok === false || (typeof r.status === 'number' && (r.status < 200 || r.status >= 300))) throw new Error('图片下载失败：HTTP ' + r.status)
+    let type = String(r.headers?.get?.('content-type') || '').split(';')[0].trim()
     const buf = Buffer.from(await r.arrayBuffer())
     if (!buf.length) throw new Error('图片是空的')
     if (buf.length > FACE_MAX) throw new Error('图片超过 2MB，B 站不收')
+    if (!/^image\//i.test(type)) type = sniffImageType(buf)
+    if (!type) throw new Error('这个网址不是图片')
     const fd = new FormData()
     fd.append('dopost', 'save')
     fd.append('DisplayRank', '10000')
