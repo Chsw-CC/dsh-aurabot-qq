@@ -455,24 +455,32 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
       if (!list.length) return { ok: false, message: '私信消息没读出来，等下次再看' }
       const seen = new Set(s.dmSeen)
       const fresh = list.filter((m) => m.uid === String(o.uid) && !seen.has(m.id))
-      s.dmSeen = [...seen, ...list.map((m) => m.id).filter((id) => !seen.has(id))].slice(-300)
+      // 主人的新消息等回成功了才记为看过（没发出去下次再试，同一条最多试 3 次）
+      const freshIds = new Set(fresh.map((m) => m.id))
+      const markSeen = (ids) => { s.dmSeen = [...new Set([...s.dmSeen, ...ids])].slice(-300) }
+      markSeen(list.map((m) => m.id).filter((id) => !freshIds.has(id)))
+      s.dmTries = s.dmTries || {}
+      for (const id of freshIds) if ((s.dmTries[id] = (s.dmTries[id] || 0) + 1) > 3) { markSeen([id]); freshIds.delete(id) }
+      const done = () => { markSeen([...freshIds]); for (const id of freshIds) delete s.dmTries[id] }
       if (!s.dmInit) {
         s.dmInit = true
+        done()
         return { ok: true, replied: 0, message: '第一次看私信：之前的消息都记为看过，不回' }
       }
       // 太久以前的（比如 DSH 关着那段时间的）不回
-      if (!fresh.some((m) => now() - m.at < 30 * 60_000)) return { ok: true, replied: 0 }
+      if (!fresh.some((m) => freshIds.has(m.id) && now() - m.at < 30 * 60_000)) { done(); return { ok: true, replied: 0 } }
       const who = (m) => (m.uid === String(o.uid) ? owner() : '你')
       const line = (m) => `${who(m)}：${m.card ? `[分享了抖音视频《${m.card.title || '没标题'}》]` : m.text || '[表情或图片]'}`
       const out = await hub.runSystemTurn('douyin-dm', '抖音 · 主人私信',
         `【抖音私信：${owner()}在抖音上给你发消息，不是 QQ。用你平时的口气回，一两句就行，像发微信那样；不想回就只输出 [沉默]。这一轮不能用工具。` +
-        `要是${owner()}让你去刷视频、找视频给他，就在回复最后单独加一行 [去刷抖音]，回完你就会去刷一轮，挑中的视频会私信分享给${owner()}（别说已经发了）。】\n` +
+        `你现在没在刷抖音。要是${owner()}让你去刷视频、找视频给他，就在回复最后单独加一行 [去刷抖音]，回完你才会真的去刷一轮，挑中的视频会私信分享给${owner()}（别说已经发了）。` +
+        `没写 [去刷抖音] 就不会去刷，那就别说自己在刷、马上去刷、已经发了这类话。】\n` +
         `最近的私信（从旧到新）：\n${list.slice(-14).map(line).join('\n')}\n\n只输出要发的话。`,
         { timeoutMs: 180000, noTools: true })
       let text = typeof out === 'string' ? out : String(out?.text ?? out ?? '')
       wantBrowse = /\[去刷抖音\]/.test(text)
       text = text.replace(/\[去刷抖音\]/g, '').trim()
-      if (!text || isSilence(text)) return { ok: true, replied: 0 }
+      if (!text || isSilence(text)) { done(); return { ok: true, replied: 0 } }
       const lines = text.split(/\n+|\|\|\|/).map((x) => clip(x, 300)).filter(Boolean).slice(0, 3)
       let sent = 0
       for (const msg of lines) {
@@ -483,6 +491,7 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
         save(s)
         if (sent < lines.length) await sleep(between(800, 2500))
       }
+      done()
       memory?.addEvent?.({ text: `在抖音私信里回了${owner()}：${lines.join(' ').slice(0, 60)}`, tags: ['抖音'], importance: 0.4 })
       return { ok: true, replied: sent }
     } catch (error) {

@@ -450,7 +450,8 @@ export function createSite({ browser, log }) {
   /** 在当前打开的会话里发一条私信：清空输入框、打字、回车（页面在后台时按键照样送得到），等私信接口发送成功。 */
   async function sendDm(text) {
     const ok = await b.evaluate(`(() => {
-      const e = [...document.querySelectorAll('[contenteditable="true"]')].find((x) => x.getBoundingClientRect().x > 400)
+      // 按输入框自己的样子认（占位文字「发送消息」），别按位置：窗口宽窄不同，会话列表的宽度也不同
+      const e = document.querySelector('.editor-kit-container[contenteditable="true"]') || [...document.querySelectorAll('[contenteditable="true"]')].find((x) => /发送消息/.test(x.getAttribute('data-placeholder') || x.getAttribute('placeholder') || ''))
       if (!e) return false
       e.setAttribute('data-aurabot', 'dm-edit')
       e.focus()

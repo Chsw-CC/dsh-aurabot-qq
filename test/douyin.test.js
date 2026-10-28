@@ -129,7 +129,7 @@ function fakeSite({ feed = [], loggedIn = true, verify = '', likeError = null, c
     user: async (secUid) => ({ secUid, uid: '4182', nickname: '主人的新昵称', douyinId: 'master01' }),
     findByDouyinId: async (id) => { if (id !== 'master01') throw new Error('按抖音号没搜到这个人'); return { secUid: 'MS4wOWNER', uid: '4182', nickname: '主人小号', douyinId: 'master01' } },
     dms: async (uid) => { calls.dms++; calls.dmUid = uid; return chat.slice() },
-    sendDm: async (text) => { calls.dm.push(text); return { ok: true } },
+    sendDm: async (text) => { if (calls.dmFail > 0) { calls.dmFail--; throw new Error('私信输入框点不进去') } calls.dm.push(text); return { ok: true } },
     loginStart: async () => ({ ok: true, loggedIn: false, shot: 'data:image/png;base64,QR' }),
     loginPoll: async () => ({ ok: true, loggedIn: true, me: { secUid: 'MS4wSELF', nickname: '她的小号' } }),
     show: async () => {},
@@ -477,4 +477,36 @@ test('抖音私信：一条都没读到时不做「第一次」初始化（免�
   const r2 = await dy.checkOwnerDms()
   assert.match(r2.message, /第一次/, '读到消息后才初始化，旧消息不回')
   assert.equal(r2.replied, 0)
+})
+
+test('抖音私信：回复没发出去时这条不算看过，下次再试；同一条最多试 3 次', async () => {
+  const t = Date.now()
+  const chat = [{ id: 'a', uid: '4182', text: '旧的', at: t - 3600_000 }]
+  const { dy, fs } = setup({ owner: OWNER, siteOpts: { chat }, turn: () => '在呢' })
+  await dy.checkOwnerDms()
+  chat.push({ id: 'b', uid: '4182', text: '111', at: t })
+  fs.calls.dmFail = 1
+  const r1 = await dy.checkOwnerDms()
+  assert.equal(r1.ok, false)
+  const r2 = await dy.checkOwnerDms()
+  assert.equal(r2.replied, 1, '下次检查重试成功')
+  assert.deepEqual(fs.calls.dm, ['在呢'])
+  assert.equal((await dy.checkOwnerDms()).replied, 0, '回过的不再回')
+  chat.push({ id: 'c', uid: '4182', text: '在吗', at: t })
+  fs.calls.dmFail = 99
+  for (let i = 0; i < 4; i++) await dy.checkOwnerDms()
+  fs.calls.dmFail = 0
+  assert.equal((await dy.checkOwnerDms()).replied, 0, '试了 3 次还不行就放弃这条')
+})
+
+test('抖音私信：提示词明说「没在刷、没写 [去刷抖音] 就别说在刷」（她以前会顺口说「我刚钻进推荐里」）', async () => {
+  const t = Date.now()
+  const chat = [{ id: 'a', uid: '4182', text: '旧的', at: t - 3600_000 }]
+  const { dy, prompts } = setup({ owner: OWNER, siteOpts: { chat }, turn: () => '在呢' })
+  await dy.checkOwnerDms()
+  chat.push({ id: 'b', uid: '4182', text: '在吗', at: t })
+  await dy.checkOwnerDms()
+  const p = prompts.find((x) => /抖音私信/.test(x))
+  assert.match(p, /你现在没在刷抖音/)
+  assert.match(p, /没写 \[去刷抖音\] 就不会去刷/)
 })
