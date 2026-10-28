@@ -20,9 +20,12 @@ import { redact } from '../core/redact.js'
 import { defaultModel, pickReasoningEffort, canSeeImages } from '../core/llm.js'
 import { resolveChatModel } from './chat-model.js'
 
-// QQ 会话的工作区目录，第一次收到消息时自动创建。老安装沿用 C:\Aurabot\qq-chats；新安装放在用户目录下（不用往 C 盘根目录写）
+// QQ 会话的工作区目录，第一次收到消息时自动创建。面板「连接」页能改（config.workspaceDir，#32）；
+// 没填就用环境变量 AURABOT_WORKSPACE，再没有：老安装沿用 C:\Aurabot\qq-chats，新安装放在用户目录下（不用往 C 盘根目录写）
 const LEGACY_WORKSPACE = 'C:\\Aurabot\\qq-chats'
 export const WORKSPACE_DIR = process.env.AURABOT_WORKSPACE || (existsSync(LEGACY_WORKSPACE) ? LEGACY_WORKSPACE : join(homedir(), 'Aurabot', 'qq-chats'))
+/** 现在用的工作区目录：面板里填了就用填的，否则默认。 */
+export const workspaceDirOf = (cfg) => String(cfg?.workspaceDir || '').trim() || WORKSPACE_DIR
 export const WORKSPACE_TITLE = 'Aurabot · QQ'
 const SOURCE_KIND = 'aurabot'
 
@@ -116,12 +119,13 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   async function ensureWorkspace() {
     const reg = dsh.workspaceRegistry || dsh.get('workspaceRegistry')
     if (!reg) throw new Error('宿主没有 workspaceRegistry')
-    mkdirSync(WORKSPACE_DIR, { recursive: true })
+    const dir = workspaceDirOf(getConfig())
+    mkdirSync(dir, { recursive: true })
     const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase()
-    let ws = reg.list().find((w) => norm(w.path) === norm(WORKSPACE_DIR))
+    let ws = reg.list().find((w) => norm(w.path) === norm(dir))
     if (!ws) {
-      ws = await reg.create(WORKSPACE_DIR, WORKSPACE_TITLE)
-      log.info('建好了工作区「' + WORKSPACE_TITLE + '」')
+      ws = await reg.create(dir, WORKSPACE_TITLE)
+      log.info('建好了工作区「' + WORKSPACE_TITLE + '」：' + dir)
     }
     return ws
   }
@@ -398,6 +402,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   }
 
   async function sendSticker(chatId, query, replyId) {
+    // 面板里把表情包关了：回复里的 <sticker:…>、工具、扩展模块要发的一律不发（#31）
+    if (!getConfig().stickers.enabled) {
+      log.debug(`表情包关着，「${typeof query === 'object' ? query?.name || '' : query}」不发`)
+      return false
+    }
     const item = query && typeof query === 'object' ? query : stickers.match(query)
     if (!item) {
       log.debug(`没找到「${query}」这张表情，跳过`)
@@ -1128,7 +1137,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     // 专用工作区里其他零散的会话（比如手动点「新会话」留下的空白会话）也一起归档
     try {
       const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase()
-      const ws = (reg?.list?.() || []).find((w) => norm(w.path) === norm(WORKSPACE_DIR))
+      const ws = (reg?.list?.() || []).find((w) => norm(w.path) === norm(workspaceDirOf(getConfig())))
       for (const sid of ws?.sessionIds || []) {
         if ((reg.archivedSessionIds || []).includes(sid)) continue
         Promise.resolve(reg.archiveSession(sid)).catch(() => {})

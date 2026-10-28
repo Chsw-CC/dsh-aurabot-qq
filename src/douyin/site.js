@@ -358,6 +358,100 @@ export function createSite({ browser, log }) {
     return { ok: true, already }
   }
 
+  // ---------- 私信（独立聊天页 douyin.com/chat） ----------
+  const CHAT = `${HOME}chat?isPopup=1`
+  const DM_EDIT = '[data-aurabot="dm-edit"]'
+
+  /** 打开和某人的私信会话：会话 id 是「0:1:双方 uid」，按 uid 认人。页面在后台时列表要十几秒才出来。 */
+  async function openChat(uid) {
+    if (!String(await b.evaluate('location.href').catch(() => '')).startsWith(CHAT)) await b.goto(CHAT)
+    let found = false
+    for (let i = 0; i < 40 && !found; i++) {
+      found = await b.evaluate(`(() => {
+        const want = ${JSON.stringify(String(uid))}
+        for (const n of document.querySelectorAll('div')) {
+          const r = n.getBoundingClientRect()
+          if (!(r.height > 40 && r.height < 120 && r.x < 450)) continue
+          const k = Object.keys(n).find((x) => x.startsWith('__reactFiber$')); if (!k) continue
+          for (let f = n[k], j = 0; f && j < 3; f = f.return, j++) {
+            for (const v of Object.values(f.memoizedProps || {})) {
+              if (!v || typeof v !== 'object') continue
+              let id = ''
+              try { id = String(v.conversationId || v.id || '') } catch (e) {}
+              if (/^0:1:/.test(id) && id.split(':').includes(want)) { n.setAttribute('data-aurabot', 'conv'); return true }
+            }
+          }
+        }
+        return false
+      })()`).catch(() => false)
+      if (!found) await sleep(1000)
+    }
+    if (!found) throw Object.assign(new Error('私信列表里没找到主人（还没互发过私信？）'), { code: 'dm' })
+    await b.press('[data-aurabot="conv"]')
+    await sleep(1500)
+  }
+
+  /** 当前会话里的消息（从旧到新）：{ id, uid, text, at, card }；card = 分享的视频 { awemeId, title }。 */
+  async function readChat() {
+    const list = await b.evaluate(`(() => {
+      const out = [], seen = new Set()
+      for (const n of document.querySelectorAll('div')) {
+        const k = Object.keys(n).find((x) => x.startsWith('__reactFiber$')); if (!k) continue
+        let m = null
+        for (let f = n[k], j = 0; f && j < 3 && !m; f = f.return, j++) { const v = f.memoizedProps && f.memoizedProps.message; if (v && typeof v === 'object' && 'isMyMessage' in v) m = v }
+        if (!m) continue
+        const id = String(m.serverId ?? '')
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        const p = m.parsedContent || {}
+        const at = m.createdAt instanceof Date ? m.createdAt.getTime() : Number(m.createdAt) || 0
+        out.push({ id, uid: String(m.sender ?? ''), text: String(p.text || '').slice(0, 500), at, card: p.itemId ? { awemeId: String(p.itemId), title: String(p.content_title || '').slice(0, 80) } : null })
+      }
+      return out.sort((a, c) => a.at - c.at)
+    })()`).catch(() => [])
+    return Array.isArray(list) ? list : []
+  }
+
+  /** 和这个人的私信：打开会话、读最近的消息。 */
+  async function dms(uid) {
+    await openChat(uid)
+    return readChat()
+  }
+
+  /** 在当前打开的会话里发一条私信：清空输入框、打字、回车（页面在后台时按键照样送得到），等私信接口发送成功。 */
+  async function sendDm(text) {
+    const ok = await b.evaluate(`(() => {
+      const e = [...document.querySelectorAll('[contenteditable="true"]')].find((x) => x.getBoundingClientRect().x > 400)
+      if (!e) return false
+      e.setAttribute('data-aurabot', 'dm-edit')
+      e.focus()
+      return document.activeElement === e
+    })()`).catch(() => false)
+    if (!ok) throw new Error('私信输入框点不进去')
+    await b.clearFocused()
+    await b.type(text)
+    await sleep(400 + Math.random() * 600)
+    const sent = /\/v1\/message\/send/
+    let resp = b.waitResponse(sent, 8000)
+    await b.pressEnter()
+    let r = await resp
+    if (!r) {
+      // 回车没发出去：点输入框右边的发送箭头（svg 本身挂着点击，类名里带 publishBtn）
+      const marked = await b.evaluate(`(() => { const s = document.querySelector('[class*="publishBtn"]'); if (!s) return false; s.setAttribute('data-aurabot', 'dm-send'); return true })()`).catch(() => false)
+      if (marked) {
+        resp = b.waitResponse(sent, 8000)
+        await b.press('[data-aurabot="dm-send"]')
+        r = await resp
+      }
+    }
+    if (!r || r.status !== 200) {
+      await b.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(DM_EDIT)}); e && e.focus() })()`).catch(() => {})
+      await b.clearFocused().catch(() => {}) // 没发出去的字别留在框里，免得下次接在后面
+      throw new Error('私信没发出去' + (r ? `（HTTP ${r.status}）` : ''))
+    }
+    return { ok: true }
+  }
+
   /** 按 sec_uid 查一个人（@ 之前拿最新昵称；核对主人用）。 */
   async function user(secUid) {
     const u = (await api('/aweme/v1/web/user/profile/other/', { sec_user_id: secUid, source: 'channel_pc_web' })).user || {}
@@ -410,5 +504,5 @@ export function createSite({ browser, log }) {
     return { ok: true, loggedIn: false, shot: await loginShot() }
   }
 
-  return { ensure, self, user, findByDouyinId, feed, detail, comments, verify, watch, like, comment, share, loginStart, loginPoll, show: (v) => b.show(v), connected: () => b.connected() }
+  return { ensure, self, user, findByDouyinId, feed, detail, comments, verify, watch, like, comment, share, dms, sendDm, loginStart, loginPoll, show: (v) => b.show(v), connected: () => b.connected() }
 }

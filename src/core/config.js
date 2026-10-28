@@ -20,6 +20,7 @@ export const DEFAULTS = {
   // 用什么接 QQ：snowluma = 插件帮你管 SnowLuma（Windows）；onebot = 接你已有的 OneBot v11 机器人（NapCat、LLOneBot、Lagrange、Docker 里的 SnowLuma……），
   // 这时只按下面 snowluma.httpUrl / wsUrl / token 去连，不启动、不注入任何东西
   gateway: 'snowluma',
+  workspaceDir: '', // QQ 会话放在哪个文件夹（DSH 里的「Aurabot · QQ」工作区）；留空 = 默认（用户目录下 Aurabot\\qq-chats）
   snowluma: {
     dir: 'C:\\Aurabot\\snowluma', // 主人自己下载解压到这里（EULA 不允许自动部署）
     autoStart: true, // 随 DSH 启动它（只启动主人已安装并同意过协议的副本）
@@ -205,6 +206,9 @@ export function normalize(raw) {
   c.botQQ = qq(c.botQQ)
   c.ownerQQ = qq(c.ownerQQ)
   c.gateway = c.gateway === 'onebot' ? 'onebot' : 'snowluma'
+  // 只认绝对路径（Windows 的 D:\\… 或 Linux 的 /…），别的当没填
+  c.workspaceDir = String(c.workspaceDir || '').trim()
+  if (c.workspaceDir && !/^([a-zA-Z]:[\\/]|\/)/.test(c.workspaceDir)) c.workspaceDir = ''
   // 视觉能力：auto = 问 DSH 的模型元数据；on / off = 主人手动声明（覆盖元数据）
   c.model.vision = c.model.vision === 'on' || c.model.vision === 'off' ? c.model.vision : 'auto'
   c.setupDone = bool(c.setupDone, false)

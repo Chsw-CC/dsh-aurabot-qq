@@ -272,6 +272,17 @@ export function createBrowser({ profileDir, browserPath = () => '', log } = {}) 
     await need().send('Input.insertText', { text })
   }
 
+  /** 清空当前焦点输入框：真按 Ctrl+A、退格（抖音私信框的编辑器不认 execCommand）。 */
+  async function clearFocused() {
+    const c = need()
+    const key = (k, code, vk, modifiers = 0) => [
+      c.send('Input.dispatchKeyEvent', { type: 'keyDown', key: k, code, windowsVirtualKeyCode: vk, modifiers }),
+      c.send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code, windowsVirtualKeyCode: vk, modifiers }),
+    ]
+    await Promise.all(key('a', 'KeyA', 65, process.platform === 'darwin' ? 4 : 2))
+    await Promise.all(key('Backspace', 'Backspace', 8))
+  }
+
   async function pressEnter() {
     const c = need()
     const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }
@@ -320,5 +331,5 @@ export function createBrowser({ profileDir, browserPath = () => '', log } = {}) 
     cdp = null
   }
 
-  return { open, connected, evaluate, goto, waitFor, click, press, type, pressEnter, waitResponse, screenshot, show, close }
+  return { open, connected, evaluate, goto, waitFor, click, press, type, clearFocused, pressEnter, waitResponse, screenshot, show, close }
 }
