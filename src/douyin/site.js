@@ -386,20 +386,27 @@ export function createSite({ browser, log }) {
     for (let i = 0; i < 40 && !found; i++) {
       found = await b.evaluate(`(() => {
         const want = ${JSON.stringify(String(uid))}
+        // 外层容器和里面那一行都能对上会话 id，点击要落在最里层那一行上才会打开会话
+        let hit = null
         for (const n of document.querySelectorAll('div')) {
           const r = n.getBoundingClientRect()
           if (!(r.height > 40 && r.height < 120 && r.x < 450)) continue
           const k = Object.keys(n).find((x) => x.startsWith('__reactFiber$')); if (!k) continue
-          for (let f = n[k], j = 0; f && j < 3; f = f.return, j++) {
+          let match = false
+          for (let f = n[k], j = 0; f && j < 3 && !match; f = f.return, j++) {
             for (const v of Object.values(f.memoizedProps || {})) {
               if (!v || typeof v !== 'object') continue
               let id = ''
               try { id = String(v.conversationId || v.id || '') } catch (e) {}
-              if (/^0:1:/.test(id) && id.split(':').includes(want)) { n.setAttribute('data-aurabot', 'conv'); return true }
+              if (/^0:1:/.test(id) && id.split(':').includes(want)) { match = true; break }
             }
           }
+          if (match && (!hit || hit.contains(n))) hit = n
         }
-        return false
+        if (!hit) return false
+        document.querySelectorAll('[data-aurabot="conv"]').forEach((x) => x.removeAttribute('data-aurabot'))
+        hit.setAttribute('data-aurabot', 'conv')
+        return true
       })()`).catch(() => false)
       if (!found) await sleep(1000)
     }
@@ -429,10 +436,15 @@ export function createSite({ browser, log }) {
     return Array.isArray(list) ? list : []
   }
 
-  /** 和这个人的私信：打开会话、读最近的消息。 */
+  /** 和这个人的私信：打开会话、读最近的消息（页面在后台时消息要过一会儿才加载出来，等一等）。 */
   async function dms(uid) {
     await openChat(uid)
-    return readChat()
+    let list = []
+    for (let i = 0; i < 15 && !list.length; i++) {
+      list = await readChat()
+      if (!list.length) await sleep(1000)
+    }
+    return list
   }
 
   /** 在当前打开的会话里发一条私信：清空输入框、打字、回车（页面在后台时按键照样送得到），等私信接口发送成功。 */

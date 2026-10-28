@@ -467,3 +467,14 @@ test('抖音私信：没核对主人抖音号不看；定时按间隔看', async
   await dy.tick()
   assert.equal(fs.calls.dms, 2)
 })
+
+test('抖音私信：一条都没读到时不做「第一次」初始化（免得之后把旧消息当新消息回）', async () => {
+  const chat = []
+  const { dy } = setup({ owner: OWNER, siteOpts: { chat }, turn: () => '在呢' })
+  const r = await dy.checkOwnerDms()
+  assert.equal(r.ok, false)
+  chat.push({ id: 'old', uid: '4182', text: '刚才的话', at: Date.now() - 60_000 })
+  const r2 = await dy.checkOwnerDms()
+  assert.match(r2.message, /第一次/, '读到消息后才初始化，旧消息不回')
+  assert.equal(r2.replied, 0)
+})

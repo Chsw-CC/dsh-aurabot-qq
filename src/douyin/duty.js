@@ -451,6 +451,8 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
       const r = await ready(s)
       if (!r.ok) return r
       const list = await site.dms(o.uid)
+      // 一条都没读到多半是页面还没加载好：别拿空列表当「看过了」，下次再看
+      if (!list.length) return { ok: false, message: '私信消息没读出来，等下次再看' }
       const seen = new Set(s.dmSeen)
       const fresh = list.filter((m) => m.uid === String(o.uid) && !seen.has(m.id))
       s.dmSeen = [...seen, ...list.map((m) => m.id).filter((id) => !seen.has(id))].slice(-300)
