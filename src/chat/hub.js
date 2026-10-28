@@ -19,6 +19,7 @@ import { mimeOf } from './inbound.js'
 import { redact } from '../core/redact.js'
 import { defaultModel, pickReasoningEffort, canSeeImages } from '../core/llm.js'
 import { resolveChatModel } from './chat-model.js'
+import { createFaces, textToSegments, stripFaceTags } from './faces.js'
 
 // QQ 会话的工作区目录，第一次收到消息时自动创建。面板「连接」页能改（config.workspaceDir，#32）；
 // 没填就用环境变量 AURABOT_WORKSPACE，再没有：老安装沿用 C:\Aurabot\qq-chats，新安装放在用户目录下（不用往 C 盘根目录写）
@@ -68,6 +69,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const ENGAGE_MS = 3 * 60_000
   const groupNames = new Map()
   const recentMedia = new Map() // chatId → [{ seg, userId, at, sticker }] 最近发来的图片和表情
+  const faces = createFaces({ onebot, log }) // QQ 系统表情：<face:名字> ↔ 编号
   const sentIds = new Set()
   const stats = { received: 0, sent: 0, voice: 0, stickers: 0, errors: 0, day: new Date().toDateString() }
   let selfId = ''
@@ -359,7 +361,10 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const quote = (replyId) => (replyId ? [{ type: 'reply', data: { id: String(replyId) } }] : [])
 
   async function sendText(chatId, text, replyId) {
-    return sendSegments(chatId, [...quote(replyId), { type: 'text', data: { text } }], (replyId ? '[引用] ' : '') + text.slice(0, 60))
+    // 文字里的 <face:名字> 换成 QQ 系统表情，和文字在同一条消息里；系统表情关着就去掉标签
+    const segs = getConfig().stickers.faces ? textToSegments(text, faces.idOf) : [{ type: 'text', data: { text: stripFaceTags(text) } }]
+    if (!segs.length || (segs.length === 1 && segs[0].type === 'text' && !segs[0].data.text.trim())) return null
+    return sendSegments(chatId, [...quote(replyId), ...segs], (replyId ? '[引用] ' : '') + text.slice(0, 60))
   }
 
   async function sendVoice(chatId, text) {
@@ -655,7 +660,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   async function onMessage(event) {
     selfId = String(event.self_id || selfId || getConfig().botQQ)
     const cfg = getConfig()
-    const msg = parseMessageEvent(event, selfId)
+    const msg = parseMessageEvent(event, selfId, { faceName: faces.nameOf })
     if (msg.userId === selfId) return
     bump('received')
     const now = Date.now()
@@ -809,7 +814,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
         const r = await onebot.call('get_forward_msg', { id }, { timeoutMs: 15000 })
         for (const node of (r?.messages || []).slice(0, 40)) {
           const who = node.sender?.card || node.sender?.nickname || String(node.sender?.user_id ?? node.user_id ?? '某人')
-          const m = parseMessageEvent({ message_type: 'private', user_id: node.sender?.user_id ?? node.user_id, message: node.message ?? node.content ?? [] }, selfId)
+          const m = parseMessageEvent({ message_type: 'private', user_id: node.sender?.user_id ?? node.user_id, message: node.message ?? node.content ?? [] }, selfId, { faceName: faces.nameOf })
           lines.push(`  ${who}：${(m.text || '（图片/表情）').slice(0, 120)}`)
         }
       } catch (error) {
