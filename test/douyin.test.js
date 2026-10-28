@@ -100,15 +100,15 @@ test('配置：总开关默认关；只剩 4 项权限且默认仅主人；1.0.x
   const old = normalize({ douyin: { enabled: true, owner: { secUid: 'x', avatar: 'a.jpg' }, atOwnerOnLikeChance: 0.7, dmPollMinutes: 7, minimize: true, shareBias: 'off', caps: { like: 10, shareOwner: 2, dm: 5 } }, profilePerms: { douyinDm: 'all' } })
   assert.deepEqual(old.douyin.owner, { input: '', secUid: 'x', uid: '', nickname: '', confirmedInput: '' })
   assert.equal(old.douyin.atOwnerOnLikeChance, undefined)
-  assert.equal(old.douyin.dmPollMinutes, undefined)
+  assert.equal(old.douyin.dmPollMinutes, 7, '看私信间隔这个设置又用上了，保留')
   assert.equal(old.douyin.shareBias, 'stingy')
   assert.deepEqual(old.douyin.caps, { like: 10, comment: 3, share: 2, atOwner: 3 })
   assert.equal(old.profilePerms.douyinDm, undefined)
 })
 
 /** 假的抖音网页：记下每次点赞 / 评论落在哪个视频上。 */
-function fakeSite({ feed = [], loggedIn = true, verify = '', likeError = null, commentError = null, liked = new Set(), mentionFails = false, shareFails = false } = {}) {
-  const calls = { ensure: 0, watch: [], like: [], comment: [], share: [], feed: 0 }
+function fakeSite({ feed = [], loggedIn = true, verify = '', likeError = null, commentError = null, liked = new Set(), mentionFails = false, shareFails = false, chat = [] } = {}) {
+  const calls = { ensure: 0, watch: [], like: [], comment: [], share: [], feed: 0, dms: 0, dm: [] }
   return {
     calls,
     ensure: async () => { calls.ensure++; return { ok: true } },
@@ -128,6 +128,8 @@ function fakeSite({ feed = [], loggedIn = true, verify = '', likeError = null, c
     share: async (id, who) => { if (shareFails) throw Object.assign(new Error('分享面板里没找到主人（可能互相没关注、私信不通）'), { code: 'share' }); calls.share.push([id, who.secUid, who.nickname]); return { ok: true } },
     user: async (secUid) => ({ secUid, uid: '4182', nickname: '主人的新昵称', douyinId: 'master01' }),
     findByDouyinId: async (id) => { if (id !== 'master01') throw new Error('按抖音号没搜到这个人'); return { secUid: 'MS4wOWNER', uid: '4182', nickname: '主人小号', douyinId: 'master01' } },
+    dms: async (uid) => { calls.dms++; calls.dmUid = uid; return chat.slice() },
+    sendDm: async (text) => { calls.dm.push(text); return { ok: true } },
     loginStart: async () => ({ ok: true, loggedIn: false, shot: 'data:image/png;base64,QR' }),
     loginPoll: async () => ({ ok: true, loggedIn: true, me: { secUid: 'MS4wSELF', nickname: '她的小号' } }),
     show: async () => {},
@@ -136,22 +138,24 @@ function fakeSite({ feed = [], loggedIn = true, verify = '', likeError = null, c
 }
 
 let n = 0
-function setup({ decisions = [], cfgOver = {}, douyinOver = {}, siteOpts = {}, now, onWait = () => {}, owner } = {}) {
+function setup({ decisions = [], cfgOver = {}, douyinOver = {}, siteOpts = {}, now, onWait = () => {}, owner, turn } = {}) {
   process.env.AURABOT_DATA_DIR = mkdtempSync(join(tmpdir(), 'aurabot-douyin-' + n++ + '-'))
   const sent = []
   const events = []
   const prompts = []
   const hub = {
-    runSystemTurn: async (name, title, prompt) => { prompts.push(prompt); return JSON.stringify(decisions) },
+    runSystemTurn: async (name, title, prompt) => { prompts.push(prompt); return turn && name === 'douyin-dm' ? turn(prompt) : JSON.stringify(decisions) },
     sendText: async (chatId, text) => { sent.push([chatId, text]) },
+    pushToSession: async (chat, content) => { pushed.push([chat.chatId, content[0].text]) },
   }
+  const pushed = []
   const memory = { addEvent: (e) => events.push(e.text), add: (m) => events.push('记住:' + m.text) }
   const cfg = normalize({ enabled: true, dryRun: false, ownerQQ: '10000001', ...cfgOver, douyin: { enabled: true, perRun: 3, dwellMin: 3, dwellMax: 3, caps: { like: 30, comment: 1, share: 5 }, gate: { minWriteGapSec: 0, newAccountDays: 0 }, ...(owner ? { owner } : {}), ...douyinOver } })
   const fs = fakeSite({ feed: [aweme('7000000000000000001'), aweme('7000000000000000002', { is_ads: true }), aweme('7000000000000000003'), aweme('7000000000000000004')], ...siteOpts })
   const waits = []
   const owners = []
   const dy = duty.createDouyin({ getConfig: () => cfg, setOwner: (o) => { owners.push(o); cfg.douyin.owner = o }, hub, memory, log: { info() {}, warn() {}, debug() {} }, site: fs, wait: async (ms) => { waits.push(ms); onWait(ms) }, ...(now ? { now } : {}) })
-  return { dy, fs, sent, events, prompts, cfg, waits, owners }
+  return { dy, fs, sent, events, prompts, cfg, waits, owners, pushed }
 }
 
 test('刷一轮：一个个点开看，按视频 id 点赞 / 评论（不会点到别的视频上），在 QQ 上分享给主人，记成她的经历', async () => {
@@ -390,4 +394,76 @@ test('分享给主人：默认在抖音里私信分享（按 sec_uid 认人）�
   const dry = setup({ owner: OWNER, decisions, cfgOver: { dryRun: true } })
   await dry.dy.run({ force: true })
   assert.equal(dry.fs.calls.share.length, 0, '试运行不真分享')
+})
+
+const until = async (fn, ms = 2000) => { const end = Date.now() + ms; while (!fn() && Date.now() < end) await new Promise((r) => setTimeout(r, 10)); return fn() }
+
+test('主人让她找视频：她一个都不分享也会自动挑一个（优先点了赞的）；刷完把结果告诉她，让她照实说', async () => {
+  const { dy, fs, pushed } = setup({ owner: OWNER, decisions: [{ i: 1, feeling: '一般' }, { i: 2, feeling: '这个不错', like: true }, { i: 3 }] })
+  const chat = { chatId: 'private:10000001', kind: 'private', userId: '10000001' }
+  const r = dy.browse({ ownerAsked: true, report: chat })
+  assert.equal(r.ok, true)
+  assert.match(r.message, /别跟对方说「已经发了」/)
+  assert.ok(await until(() => pushed.length), '刷完把结果送回聊天')
+  assert.deepEqual(fs.calls.share.map((x) => x[0]), ['7000000000000000003'], '挑了她点赞的那个')
+  assert.equal(pushed[0][0], 'private:10000001')
+  assert.match(pushed[0][1], /分享给主人的：《视频7000000000000000003》（发到了抖音私信）/)
+  assert.match(pushed[0][1], /别说没做到的事/)
+})
+
+test('自己刷 / 主人没开口：不强行分享；刷完也会照实说「没有分享」', async () => {
+  const { dy, fs, pushed, prompts } = setup({ owner: OWNER, decisions: [{ i: 1 }, { i: 2 }] })
+  dy.browse({ report: { chatId: 'group:5', kind: 'group' } })
+  assert.ok(await until(() => pushed.length))
+  assert.equal(fs.calls.share.length, 0)
+  assert.match(pushed[0][1], /这轮没有分享给主人的视频/)
+  assert.doesNotMatch(prompts[0], /至少挑一个/)
+})
+
+test('抖音私信：第一次只记下旧消息不回；之后只回主人的新消息；回复里带 [去刷抖音] 就去刷一轮', async () => {
+  let t = Date.now()
+  const chat = [
+    { id: 'm1', uid: '4182', text: '昨天的话', at: t - 3600_000 },
+    { id: 'm2', uid: '999', text: '我是路人', at: t - 1000 },
+  ]
+  let reply = '好呀等我\n[去刷抖音]'
+  const { dy, fs, prompts } = setup({ owner: OWNER, siteOpts: { chat }, now: () => t, turn: () => reply })
+  let r = await dy.checkOwnerDms()
+  assert.equal(r.replied, 0)
+  assert.match(r.message, /第一次/)
+  assert.equal(fs.calls.dmUid, '4182', '按核对过的主人 uid 打开会话')
+  // 路人的新消息不回
+  chat.push({ id: 'm3', uid: '999', text: '在吗', at: t })
+  assert.equal((await dy.checkOwnerDms()).replied, 0)
+  assert.equal(fs.calls.dm.length, 0)
+  // 主人发了分享卡片 + 一句话
+  chat.push({ id: 'm4', uid: '4182', text: '', at: t, card: { awemeId: '7', title: '猫猫' } }, { id: 'm5', uid: '4182', text: '再给我分享个视频呗', at: t })
+  r = await dy.checkOwnerDms()
+  assert.equal(r.replied, 1)
+  assert.deepEqual(fs.calls.dm, ['好呀等我'], '[去刷抖音] 标记不发出去')
+  const dmPrompt = prompts.find((p) => /抖音私信/.test(p))
+  assert.match(dmPrompt, /主人：\[分享了抖音视频《猫猫》\]/)
+  assert.match(dmPrompt, /你：|主人：再给我分享个视频呗/)
+  assert.ok(await until(() => fs.calls.watch.length === 3), '回完就去刷了一轮')
+  // 同一条不回第二次
+  reply = '嗯'
+  assert.equal((await dy.checkOwnerDms()).replied, 0)
+  assert.equal(dy.state().history.filter((x) => x.kind === 'dm').length, 1)
+})
+
+test('抖音私信：没核对主人抖音号不看；定时按间隔看', async () => {
+  const none = setup()
+  assert.equal((await none.dy.checkOwnerDms()).ok, false)
+  let t = new Date(2026, 9, 28, 10, 0, 0).getTime()
+  const { dy, fs, cfg } = setup({ owner: OWNER, now: () => t, douyinOver: { autoBrowse: false, dmPollMinutes: 3 } })
+  cfg.speakUp.awakeFrom = 8
+  cfg.speakUp.awakeTo = 23
+  await dy.tick()
+  assert.equal(fs.calls.dms, 1)
+  t += 60_000
+  await dy.tick()
+  assert.equal(fs.calls.dms, 1, '没到 3 分钟不看')
+  t += 3 * 60_000
+  await dy.tick()
+  assert.equal(fs.calls.dms, 2)
 })

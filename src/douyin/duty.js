@@ -31,6 +31,7 @@ const emptyState = () => ({
   loginAt: 0, account: null, // 上次查到的登录状态（面板只读这个，不为了显示状态去开浏览器）
   seen: [], history: [],
   sharedDy: [], // 在抖音里分享给主人过的视频 id：同一个视频绝不分享第二次（页面上的「已分享」状态刷新就没了，靠不住）
+  dmSeen: [], dmInit: false, lastDmCheck: 0, // 主人抖音私信：看过的消息 id；第一次看时旧消息只记下不回
 })
 
 export function createDouyin({ getConfig, setOwner, hub, memory, log, site: injected, now = Date.now, wait } = {}) {
@@ -225,8 +226,11 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
     return out
   }
 
-  /** 刷一轮。force = 面板里手动点的 / 主人让她去刷的（不占每天的轮数）。 */
-  async function run({ force = false } = {}) {
+  /**
+   * 刷一轮。force = 面板里手动点的 / 主人让她去刷的（不占每天的轮数）。
+   * ownerAsked = 主人开口要她找视频：这轮至少分享一个给主人，她挑剔到一个都不分享时自动挑一个。
+   */
+  async function run({ force = false, ownerAsked = false } = {}) {
     const c = cfg()
     if (busy) return { ok: false, message: '正在刷' }
     if (!c.enabled) return { ok: false, message: '抖音没打开' }
@@ -268,7 +272,7 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
         : ''
       const out = await think(`你在抖音刷到了这几个视频：\n\n${looked.map((x, i) => `【${i + 1}】${digestOf(x.v, x.comments)}`).join('\n\n')}\n\n` +
         `看完说说你的想法。对每个视频给一个对象：{"i":序号, "feeling":"一句你的真实感受", "like":true/false, "comment":"想在视频下发的评论（像普通观众，一两句、别打广告，不想评就空字符串）", ${atLeft ? '"at":true/false, ' : ''}"share":"想分享给${owner()}时说的话（不想分享就空字符串）", "remember":"值得记住的一件事（没有就空字符串）"}。` +
-        `这次最多点赞 ${likeLeft} 个、评论 ${commentLeft} 个、分享 ${shareLeft} 个。${atRule}${shareLeft ? shareHint() : ''}只输出 JSON 数组。`)
+        `这次最多点赞 ${likeLeft} 个、评论 ${commentLeft} 个、分享 ${shareLeft} 个。${atRule}${shareLeft ? (ownerAsked ? `${owner()}刚才专门让你找视频给他，这轮至少挑一个最合适的写 share，别全空着。` : shareHint()) : ''}只输出 JSON 数组。`)
       const decisions = pickJson(out, [])
       const byI = new Map((Array.isArray(decisions) ? decisions : []).map((d) => [Number(d?.i) || 0, d]))
 
@@ -276,6 +280,7 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
       let commented = 0
       let shared = 0
       let atted = 0
+      const sharedList = [] // 这轮分享给主人的 { title, via }，刷完告诉她
       for (let i = 0; i < looked.length; i++) {
         const { v } = looked[i]
         const d = byI.get(i + 1) || {}
@@ -306,8 +311,24 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
           if (r.ok) {
             shared++
             s.share++
+            sharedList.push({ title: v.title, via: r.via })
             record(s, { kind: 'share', ...meta, text: share, via: r.via })
           }
+        }
+        save(s)
+      }
+
+      // 主人开口要了，她却一个都没分享：挑她点了赞的（没有就第一个）分享过去，免得主人白等
+      if (ownerAsked && !shared && shareLeft) {
+        const pickI = Math.max(0, looked.findIndex((x, i) => (byI.get(i + 1) || {}).like === true))
+        const { v } = looked[pickI]
+        const text = clip((byI.get(pickI + 1) || {}).feeling, 80) || `${owner()}你要的，这个还行`
+        const r = await shareToOwner(s, v, text)
+        if (r.ok) {
+          shared++
+          s.share++
+          sharedList.push({ title: v.title, via: r.via })
+          record(s, { kind: 'share', awemeId: v.awemeId, title: v.title, author: v.author, text, via: r.via })
         }
         save(s)
       }
@@ -320,7 +341,7 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
       s.lastSkipReason = ''
       const msg = `看了 ${looked.length} 个视频，点赞 ${liked}，评论 ${commented}${atted ? `（@了${owner()} ${atted} 次）` : ''}，分享 ${shared} 个`
       log.info('刷了一轮抖音：' + msg)
-      return { ok: true, message: msg, watched: looked.length, liked, commented, shared }
+      return { ok: true, message: msg, watched: looked.length, liked, commented, shared, sharedList }
     } catch (error) {
       log.warn('刷抖音出错：', error.message)
       s.lastSkipReason = error.message
@@ -390,23 +411,102 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
     return act('comment', link, t)
   }
 
-  /** 主人让她去刷一会儿：后台刷，马上返回（一轮要好几分钟）。 */
-  function browse() {
-    if (busy) return { ok: false, message: '已经在刷了' }
-    if (!cfg().enabled) return { ok: false, message: '抖音没打开' }
-    const c = cfg()
-    run({ force: true }).catch(() => {})
-    return { ok: true, message: `开始刷了，这一轮看 ${c.perRun} 个左右，大概要 ${Math.ceil((c.perRun * (c.dwellMin + c.dwellMax)) / 2 / 60) + 1} 分钟；看到好玩的会分享给你。` }
+  /** 刷完的结果写成一段给她看的话（照实说，没分享就是没分享）。 */
+  function resultNote(r) {
+    if (!r.ok) return `【系统消息，不是对方说的】你刚才去刷抖音没刷成：${r.message}。照实跟对方说一声。`
+    const where = (via) => via.map((x) => (x === 'douyin' ? '抖音私信' : 'QQ')).join('和')
+    const shares = (r.sharedList || []).map((x) => `《${x.title}》（发到了${where(x.via)}）`)
+    return `【系统消息，不是对方说的】你刚刷完一轮抖音：看了 ${r.watched} 个，点赞 ${r.liked}，评论 ${r.commented}。` +
+      (shares.length ? `分享给${owner()}的：${shares.join('、')}。` : `这轮没有分享给${owner()}的视频。`) +
+      '照实跟对方说一两句，别说没做到的事。'
   }
 
-  /** 每分钟调一次：醒着、到点了就刷一轮。 */
+  /**
+   * 让她去刷一会儿：后台刷，马上返回（一轮要好几分钟）。
+   * report = 从哪个聊天叫的：刷完把结果塞回那个聊天，让她照实说（不然她容易先说「已经发你了」）。
+   */
+  function browse({ ownerAsked = false, report = null } = {}) {
+    if (busy) return { ok: false, message: '已经在刷了，等这一轮刷完会告诉你结果' }
+    if (!cfg().enabled) return { ok: false, message: '抖音没打开' }
+    const c = cfg()
+    run({ force: true, ownerAsked }).then((r) => {
+      if (report) return hub.pushToSession?.(report, [{ type: 'text', text: resultNote(r) }], '')
+    }).catch((error) => log.warn('刷完报告结果出错：', error.message))
+    return { ok: true, message: `刚开始刷，这一轮看 ${c.perRun} 个左右，大概 ${Math.ceil((c.perRun * (c.dwellMin + c.dwellMax)) / 2 / 60) + 1} 分钟。现在还什么都没分享，刷完系统会把结果告诉你，在那之前别跟对方说「已经发了」。` }
+  }
+
+  /**
+   * 看主人的抖音私信，有新消息就用她的口气回（只认核对过的主人 uid，别人的私信不理）。
+   * 主人让她找视频时，她回复里带 [去刷抖音]，回完就去刷一轮，挑中的照样私信分享给主人。
+   */
+  async function checkOwnerDms() {
+    const o = ownerDy()
+    if (!o?.uid) return { ok: false, message: '还没核对主人的抖音号' }
+    if (busy) return { ok: false, message: '正在刷抖音，等会儿再看私信' }
+    busy = true
+    const s = load()
+    let wantBrowse = false
+    try {
+      s.lastDmCheck = now()
+      const r = await ready(s)
+      if (!r.ok) return r
+      const list = await site.dms(o.uid)
+      const seen = new Set(s.dmSeen)
+      const fresh = list.filter((m) => m.uid === String(o.uid) && !seen.has(m.id))
+      s.dmSeen = [...seen, ...list.map((m) => m.id).filter((id) => !seen.has(id))].slice(-300)
+      if (!s.dmInit) {
+        s.dmInit = true
+        return { ok: true, replied: 0, message: '第一次看私信：之前的消息都记为看过，不回' }
+      }
+      // 太久以前的（比如 DSH 关着那段时间的）不回
+      if (!fresh.some((m) => now() - m.at < 30 * 60_000)) return { ok: true, replied: 0 }
+      const who = (m) => (m.uid === String(o.uid) ? owner() : '你')
+      const line = (m) => `${who(m)}：${m.card ? `[分享了抖音视频《${m.card.title || '没标题'}》]` : m.text || '[表情或图片]'}`
+      const out = await hub.runSystemTurn('douyin-dm', '抖音 · 主人私信',
+        `【抖音私信：${owner()}在抖音上给你发消息，不是 QQ。用你平时的口气回，一两句就行，像发微信那样；不想回就只输出 [沉默]。这一轮不能用工具。` +
+        `要是${owner()}让你去刷视频、找视频给他，就在回复最后单独加一行 [去刷抖音]，回完你就会去刷一轮，挑中的视频会私信分享给${owner()}（别说已经发了）。】\n` +
+        `最近的私信（从旧到新）：\n${list.slice(-14).map(line).join('\n')}\n\n只输出要发的话。`,
+        { timeoutMs: 180000, noTools: true })
+      let text = typeof out === 'string' ? out : String(out?.text ?? out ?? '')
+      wantBrowse = /\[去刷抖音\]/.test(text)
+      text = text.replace(/\[去刷抖音\]/g, '').trim()
+      if (!text || isSilence(text)) return { ok: true, replied: 0 }
+      const lines = text.split(/\n+|\|\|\|/).map((x) => clip(x, 300)).filter(Boolean).slice(0, 3)
+      let sent = 0
+      for (const msg of lines) {
+        if (getConfig().dryRun) log.info('试运行：本来要在抖音私信里回主人：', msg)
+        else await site.sendDm(msg)
+        sent++
+        record(s, { kind: getConfig().dryRun ? 'dry:dm' : 'dm', text: msg })
+        save(s)
+        if (sent < lines.length) await sleep(between(800, 2500))
+      }
+      memory?.addEvent?.({ text: `在抖音私信里回了${owner()}：${lines.join(' ').slice(0, 60)}`, tags: ['抖音'], importance: 0.4 })
+      return { ok: true, replied: sent }
+    } catch (error) {
+      log.warn('看 / 回主人抖音私信出错：', error.message)
+      record(s, { kind: 'error', text: '私信没回成：' + error.message })
+      return { ok: false, message: error.message }
+    } finally {
+      save(s)
+      busy = false
+      if (wantBrowse) run({ force: true, ownerAsked: true }).catch(() => {})
+    }
+  }
+
+  /** 每分钟调一次：醒着、到点了就刷一轮；隔几分钟看一眼主人的抖音私信。 */
   async function tick() {
     const g = getConfig()
     const c = g.douyin
-    if (!g.enabled || !c.enabled || !c.autoBrowse || busy) return
+    if (!g.enabled || !c.enabled || busy) return
     const h = new Date(now()).getHours()
     if (h < g.speakUp.awakeFrom || h >= g.speakUp.awakeTo) return
     const s = load()
+    if (c.ownerDm && ownerDy() && now() - (s.lastDmCheck || 0) >= c.dmPollMinutes * 60_000) {
+      await checkOwnerDms()
+      return
+    }
+    if (!c.autoBrowse) return
     if (s.runs >= c.maxRunsPerDay || s.watched >= c.maxWatchPerDay) return
     const due = s.nextDueAt || (s.lastRun ? s.lastRun + c.intervalHours * 3600_000 : 0)
     if (now() < due) return
@@ -470,5 +570,5 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
     }
   }
 
-  return { run, browse, watch, likeVideo, commentVideo, confirmOwner, tick, account, loginStep, showWindow, state }
+  return { run, browse, watch, likeVideo, commentVideo, confirmOwner, checkOwnerDms, tick, account, loginStep, showWindow, state }
 }

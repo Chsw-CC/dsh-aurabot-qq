@@ -164,6 +164,18 @@ export function createSite({ browser, log }) {
   /** 现在有没有验证码；有就返回原因。 */
   const verify = () => b.evaluate(VERIFY_PROBE).catch(() => '')
 
+  /**
+   * 点赞 / 评论的接口回应：只有明确返回 status_code 0 才算成功。
+   * 账号被要求身份验证时，抖音回 200 + 空内容，响应头里带 x-tt-verify-passport-decision（以前把这种当成了成功）。
+   */
+  function checkWrite(r, what) {
+    if (!r) throw new Error(`${what}没发出去（没等到抖音的回应）`)
+    const h = Object.fromEntries(Object.entries(r.headers || {}).map(([k, v]) => [k.toLowerCase(), v]))
+    if (h['x-tt-verify-passport-decision']) throw Object.assign(new Error(`抖音要求这个号先做身份验证（为保障账号安全），${what}被拦下了`), { code: 'verify' })
+    if (!r.json) throw new Error(`${what}没发出去（抖音没返回结果）`)
+    if (r.json.status_code !== 0) throw Object.assign(new Error(r.json.status_msg || `${what}失败（${r.json.status_code}）`), { code: r.json.status_code })
+  }
+
   // 弹层播放器里正在播的那个视频（带着视频 id），点赞 / 评论按钮都只在它里面找，不会点到别的视频上
   const scope = (id) => `[data-e2e="feed-active-video"][data-e2e-vid="${id}"]`
   const EDITOR = '.comment-input-inner-container [contenteditable="true"]'
@@ -198,8 +210,7 @@ export function createSite({ browser, log }) {
     const resp = b.waitResponse(/\/aweme\/v1\/web\/commit\/item\/digg\//, 10000)
     await b.press(sel)
     const r = await resp
-    if (!r) throw new Error('点了赞，但没等到抖音的回应')
-    if (r.json?.status_code) throw Object.assign(new Error(r.json.status_msg || `点赞失败（${r.json.status_code}）`), { code: r.json.status_code })
+    checkWrite(r, '点赞')
     return { ok: true }
   }
 
@@ -284,8 +295,14 @@ export function createSite({ browser, log }) {
     if (marked) await b.press('[data-aurabot="send"]')
     else await b.pressEnter()
     const r = await resp
-    if (!r) throw new Error('评论没发出去（没等到抖音的回应）')
-    if (r.json?.status_code) throw Object.assign(new Error(r.json.status_msg || `评论失败（${r.json.status_code}）`), { code: r.json.status_code })
+    try {
+      checkWrite(r, '评论')
+    } catch (error) {
+      // 没发出去的字别留在评论框里（下次会接在后面，或者被当成草稿）
+      await b.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(EDITOR)}); e && e.focus() })()`).catch(() => {})
+      await b.clearFocused().catch(() => {})
+      throw error
+    }
     const c = r.json?.comment || {}
     const atOwner = Boolean(at) && (c.text_extra || []).some((x) => (at.secUid && x.sec_uid === at.secUid) || (at.uid && String(x.user_id) === String(at.uid)))
     return { ok: true, cid: String(c.cid || ''), atOwner }

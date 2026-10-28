@@ -291,7 +291,7 @@ export function createBrowser({ profileDir, browserPath = () => '', log } = {}) 
   }
 
   /**
-   * 开始等一个接口的返回（先调它、再做动作、再 await），拿到解析好的 JSON；超时 null。
+   * 开始等一个接口的返回（先调它、再做动作、再 await），拿到 { status, headers, json }；超时 null。
    * 用来确认点赞 / 评论到底成功没有，而不是点完就当成功。
    */
   function waitResponse(urlRe, ms = 10000) {
@@ -299,13 +299,13 @@ export function createBrowser({ profileDir, browserPath = () => '', log } = {}) 
     return new Promise((resolve) => {
       const ids = new Map()
       const done = (v) => { offA(); offB(); clearTimeout(t); resolve(v) }
-      const offA = c.on('Network.responseReceived', (p) => { if (urlRe.test(p.response?.url || '')) ids.set(p.requestId, p.response.status) })
+      const offA = c.on('Network.responseReceived', (p) => { if (urlRe.test(p.response?.url || '')) ids.set(p.requestId, { status: p.response.status, headers: p.response.headers || {} }) })
       const offB = c.on('Network.loadingFinished', async (p) => {
         if (!ids.has(p.requestId)) return
         const b = await c.send('Network.getResponseBody', { requestId: p.requestId }).catch(() => null)
         let json = null
         try { json = JSON.parse(b?.base64Encoded ? Buffer.from(b.body, 'base64').toString() : b?.body) } catch (error) {}
-        done({ status: ids.get(p.requestId), json })
+        done({ ...ids.get(p.requestId), json })
       })
       const t = setTimeout(() => done(null), ms)
     })

@@ -117,6 +117,8 @@ export const DEFAULTS = {
     dwellMax: 40,
     browserPath: '', // 留空 = 自动找 Edge（找不到再找 Chrome / Chromium）；也可填完整路径
     shareBias: 'proactive', // stingy | normal | proactive：刷到好看的视频，分享给主人的积极程度
+    ownerDm: true, // 主人在抖音上私信她时回（只认核对过的主人抖音号）
+    dmPollMinutes: 3, // 隔几分钟看一次主人的抖音私信
     shareTo: 'douyin', // douyin = 在抖音里私信分享给主人（要先核对主人抖音号，没核对 / 发不出去就改发 QQ）| qq = QQ 私聊发链接 | both = 两边都发
     owner: { input: '', secUid: '', uid: '', nickname: '', confirmedInput: '' }, // 主人的抖音号：面板填抖音号 / 主页链接，「核对」后才写入 secUid（真·@主人只认它）
     caps: { like: 30, comment: 3, share: 5, atOwner: 3 }, // 每天上限（登录后前 newAccountDays 天减半）；atOwner = 评论里真·@主人
@@ -279,6 +281,8 @@ export function normalize(raw) {
   d.dwellMax = Math.max(d.dwellMin, num(d.dwellMax, 40, 3, 300))
   d.browserPath = String(d.browserPath || '').trim()
   d.shareTo = ['douyin', 'qq', 'both'].includes(d.shareTo) ? d.shareTo : 'douyin'
+  d.ownerDm = bool(d.ownerDm, true)
+  d.dmPollMinutes = num(d.dmPollMinutes, 3, 1, 60)
   d.shareBias = ['stingy', 'normal', 'proactive'].includes(d.shareBias) ? d.shareBias : d.shareBias === 'off' ? 'stingy' : 'proactive'
   if (!isObj(d.caps)) d.caps = {}
   if (raw?.douyin?.caps?.share == null && raw?.douyin?.caps?.shareOwner != null) d.caps.share = raw.douyin.caps.shareOwner // 1.0.x 叫 shareOwner
@@ -288,7 +292,7 @@ export function normalize(raw) {
   if (!isObj(d.gate)) d.gate = {}
   d.gate = { maxWritesPerDay: num(d.gate.maxWritesPerDay, 40, 1, 500), minWriteGapSec: num(d.gate.minWriteGapSec, 20, 0, 600), newAccountDays: num(d.gate.newAccountDays, 3, 0, 30) }
   // 1.0.x 的 douyin-im / 私信相关设置都不用了
-  for (const k of ['atOwnerOnLikeChance', 'minimize', 'socialInterruptBrowse', 'dmPollMinutes', 'replyPollMinutes']) delete d[k]
+  for (const k of ['atOwnerOnLikeChance', 'minimize', 'socialInterruptBrowse', 'replyPollMinutes']) delete d[k]
   delete c.mood.maxInjectPerDay // 旧版的「每天最多提醒几次」，现在心情明显时每轮都会带上
   c.snowluma.webuiPort = num(c.snowluma.webuiPort, 5099, 1, 65535)
   // 老配置只有一个 consolidateAt：换成两个时间点（它 + 12 小时后）

@@ -41,9 +41,9 @@ export default {
         }))
         tools.push(defineTool({
           name: 'douyin_browse',
-          description: '现在去刷一会儿抖音推荐（后台刷，要几分钟；看到好玩的会分享给主人）。有人让你去刷抖音时用。',
+          description: '现在去刷一会儿抖音推荐，有人让你去刷抖音、找个视频给他时用。只是开始刷：要几分钟，刷完系统会把结果（看了什么、分享了哪个）告诉你，在那之前别说已经分享了 / 已经发了。主人开口要的话，这轮一定会挑一个分享给主人。',
           properties: {},
-          execute: guarded('douyinBrowse', async () => dy.browse()),
+          execute: guarded('douyinBrowse', async () => dy.browse({ ownerAsked: hub.turnHasOwner(sessionId), report: chat })),
         }))
       }
       if (profileToolVisible(cfg, 'douyinLike', chat)) tools.push(defineTool({
@@ -73,6 +73,7 @@ export default {
       return dy.showWindow(Boolean(b?.visible))
     })
     api.route('/douyin/run', async () => dy.browse())
+    api.route('/douyin/dms', async () => dy.checkOwnerDms())
     api.route('/douyin/confirm-owner', async (req) => {
       const b = await http.body(req).catch(() => ({}))
       return dy.confirmOwner(String(b?.input ?? api.config().douyin.owner.input ?? ''))
