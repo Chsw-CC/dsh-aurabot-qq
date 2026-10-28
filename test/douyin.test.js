@@ -94,16 +94,16 @@ test('配置：总开关默认关；只剩 4 项权限且默认仅主人；1.0.x
   const c = normalize({})
   assert.equal(c.douyin.enabled, false)
   assert.deepEqual(c.douyin.caps, { like: 30, comment: 3, share: 5, atOwner: 3 })
-  assert.deepEqual(DOUYIN_PERM_KEYS, ['douyinBrowse', 'douyinLike', 'douyinComment', 'douyinShareOwner'])
+  assert.deepEqual(DOUYIN_PERM_KEYS, ['douyinBrowse', 'douyinLike', 'douyinComment', 'douyinShareOwner', 'douyinDm'])
   for (const k of DOUYIN_PERM_KEYS) assert.equal(c.profilePerms[k], 'owner')
-  assert.equal(c.profilePerms.douyinDm, undefined)
+  assert.equal(c.profilePerms.douyinDm, 'owner', '主动私信默认仅主人')
   const old = normalize({ douyin: { enabled: true, owner: { secUid: 'x', avatar: 'a.jpg' }, atOwnerOnLikeChance: 0.7, dmPollMinutes: 7, minimize: true, shareBias: 'off', caps: { like: 10, shareOwner: 2, dm: 5 } }, profilePerms: { douyinDm: 'all' } })
   assert.deepEqual(old.douyin.owner, { input: '', secUid: 'x', uid: '', nickname: '', confirmedInput: '' })
   assert.equal(old.douyin.atOwnerOnLikeChance, undefined)
   assert.equal(old.douyin.dmPollMinutes, 7, '看私信间隔这个设置又用上了，保留')
   assert.equal(old.douyin.shareBias, 'stingy')
   assert.deepEqual(old.douyin.caps, { like: 10, comment: 3, share: 2, atOwner: 3 })
-  assert.equal(old.profilePerms.douyinDm, undefined)
+  assert.equal(old.profilePerms.douyinDm, 'owner', '旧版 douyinDm 含义不同，老配置回到默认仅主人')
 })
 
 /** 假的抖音网页：记下每次点赞 / 评论落在哪个视频上。 */
@@ -543,6 +543,23 @@ test('分享上限用完时不会绕开限制，主人要求刷视频时明确�
   const browse = await dy.run({ force: true, ownerAsked: true })
   assert.equal(browse.ok, false)
   assert.match(browse.message, /分享次数用完/)
+})
+
+test('主人指定给某人发抖音私信：认人、打开会话（没有就从主页发起）、发送并记录', async () => {
+  const { dy, fs, events } = setup({ owner: OWNER })
+  fs.dms = async (uid, opts = {}) => { fs.calls.dms++; fs.calls.dmUid = uid; fs.calls.dmSecUid = opts.secUid || ''; return [] }
+  const r = await dy.directDm({ target: 'https://www.douyin.com/user/MS4wSTRANGER', text: '你好呀' })
+  assert.equal(r.ok, true, r.message)
+  assert.equal(fs.calls.dmUid, '4182')
+  assert.equal(fs.calls.dmSecUid, 'MS4wSTRANGER', '要靠 secUid 从主页发起新会话')
+  assert.deepEqual(fs.calls.dm, ['你好呀'])
+  assert.ok(events.some((e) => e.includes('在抖音给')))
+  const dry = setup({ owner: OWNER, cfgOver: { dryRun: true } })
+  dry.fs.dms = async () => []
+  assert.equal((await dry.dy.directDm({ target: 'MS4wX', text: '试运行' })).ok, true)
+  assert.equal(dry.fs.calls.dm.length, 0, '试运行不真发')
+  const bad = await dy.directDm({ target: '', text: 'x' })
+  assert.equal(bad.ok, false)
 })
 
 test('主人要视频但挑选模型超时：仍分享已看过的视频，不点赞评论', async () => {
