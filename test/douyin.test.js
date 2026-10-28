@@ -510,3 +510,25 @@ test('抖音私信：提示词明说「没在刷、没写 [去刷抖音] 就别�
   assert.match(p, /你现在没在刷抖音/)
   assert.match(p, /没写 \[去刷抖音\] 就不会去刷/)
 })
+
+test('主人亲口让她找视频：今天看满了也照样去刷一轮；自己刷 / 别人叫的照旧受上限管', async () => {
+  const { dy, fs } = setup({ owner: OWNER, douyinOver: { maxWatchPerDay: 0 }, decisions: [{ i: 1 }, { i: 2 }, { i: 3 }] })
+  const plain = await dy.run({ force: true })
+  assert.equal(plain.ok, false)
+  assert.match(plain.message, /今天已经看了/)
+  const asked = await dy.run({ force: true, ownerAsked: true })
+  assert.equal(asked.ok, true)
+  assert.ok(fs.calls.watch.length > 0)
+})
+
+test('私信里让她去刷、却没刷成：在私信里照实跟主人说一声（以前「我这就去翻」之后就没下文了）', async () => {
+  const t = Date.now()
+  const chat = [{ id: 'a', uid: '4182', text: '旧的', at: t - 3600_000 }]
+  const { dy, fs, prompts } = setup({ owner: OWNER, siteOpts: { chat, feed: [] }, turn: (p) => (/没刷成/.test(p) ? '刚才没刷成 推荐里没刷到新的' : '得令\n[去刷抖音]') })
+  await dy.checkOwnerDms()
+  chat.push({ id: 'b', uid: '4182', text: '刷会儿抖音给我找个视频', at: t })
+  await dy.checkOwnerDms()
+  assert.ok(await until(() => fs.calls.dm.length === 2), '先回「得令」，没刷成再说一声')
+  assert.deepEqual(fs.calls.dm, ['得令', '刚才没刷成 推荐里没刷到新的'])
+  assert.ok(prompts.some((p) => /没刷成/.test(p)))
+})

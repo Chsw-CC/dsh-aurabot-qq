@@ -237,7 +237,8 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
     busy = true
     const s = load()
     try {
-      const want = Math.min(c.perRun, c.maxWatchPerDay - s.watched)
+      // 主人亲口让她去找视频：不受「每天看多少个」的限制（点赞评论分享那些写操作的上限照旧）
+      const want = ownerAsked ? Math.max(Math.min(c.perRun, c.maxWatchPerDay - s.watched), Math.min(c.perRun, 3)) : Math.min(c.perRun, c.maxWatchPerDay - s.watched)
       if (want <= 0) return { ok: false, message: `今天已经看了 ${s.watched} 个（上限 ${c.maxWatchPerDay}）` }
       const r = await ready(s)
       if (!r.ok) { s.lastSkipReason = r.message; return r }
@@ -501,7 +502,39 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
     } finally {
       save(s)
       busy = false
-      if (wantBrowse) run({ force: true, ownerAsked: true }).catch(() => {})
+      // 刷完没分享成（被拦、出错）要在私信里照实说一声，别让她「我这就去翻」之后没下文
+      if (wantBrowse) {
+        run({ force: true, ownerAsked: true })
+          .then((r) => (r.ok && r.sharedList?.some((x) => x.via.includes('douyin')) ? null : tellOwnerDm(resultNote(r))))
+          .catch((error) => log.warn('私信里让她刷抖音出错：', error.message))
+      }
+    }
+  }
+
+  /** 在抖音私信里跟主人照实说一句（系统消息交给她，用她的口气说）。 */
+  async function tellOwnerDm(note) {
+    const o = ownerDy()
+    if (!o?.uid || busy) return
+    busy = true
+    const s = load()
+    try {
+      const out = await hub.runSystemTurn('douyin-dm', '抖音 · 主人私信',
+        `${note}\n这是在抖音私信里跟${owner()}说，一两句，像发微信那样；这一轮不能用工具，只输出要发的话。`,
+        { timeoutMs: 180000, noTools: true })
+      const text = String(typeof out === 'string' ? out : out?.text ?? out ?? '').replace(/\[去刷抖音\]/g, '').trim()
+      if (!text || isSilence(text)) return
+      await site.dms(o.uid) // 刷完浏览器停在推荐页，先回到和主人的会话
+      for (const msg of text.split(/\n+|\|\|\|/).map((x) => clip(x, 300)).filter(Boolean).slice(0, 2)) {
+        if (getConfig().dryRun) log.info('试运行：本来要在抖音私信里跟主人说：', msg)
+        else await site.sendDm(msg)
+        record(s, { kind: getConfig().dryRun ? 'dry:dm' : 'dm', text: msg })
+      }
+    } catch (error) {
+      log.warn('在抖音私信里跟主人说一声没成：', error.message)
+      record(s, { kind: 'error', text: '私信没说成：' + error.message })
+    } finally {
+      save(s)
+      busy = false
     }
   }
 

@@ -113,7 +113,7 @@ export const DEFAULTS = {
     intervalHours: 4,
     maxRunsPerDay: 3,
     perRun: 5, // 一轮看几个视频
-    maxWatchPerDay: 30, // 每天最多看几个（手动让她刷也算）
+    maxWatchPerDay: 30, // 每天最多看几个（手动让她刷也算；主人亲口让她找视频时不受这个限制）
     dwellMin: 8, // 每个视频停留的秒数（随机取一个）
     dwellMax: 40,
     browserPath: '', // 留空 = 自动找 Edge（找不到再找 Chrome / Chromium）；也可填完整路径

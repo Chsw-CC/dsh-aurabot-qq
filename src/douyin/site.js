@@ -458,9 +458,17 @@ export function createSite({ browser, log }) {
       return document.activeElement === e
     })()`).catch(() => false)
     if (!ok) throw new Error('私信输入框点不进去')
-    await b.clearFocused()
-    await b.type(text)
-    await sleep(400 + Math.random() * 600)
+    // 打完字先核对框里是不是完整的这句（遇到过只发出去半句的），不对就清掉重打一次
+    const norm = (t) => String(t || '').replace(/[\s\u00a0\u200b]+/g, ' ').trim()
+    const inBox = () => b.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(DM_EDIT)}); return e ? e.innerText : '' })()`).catch(() => '')
+    for (let tries = 0; ; tries++) {
+      await b.clearFocused()
+      await b.type(text)
+      await sleep(400 + Math.random() * 600)
+      if (norm(await inBox()) === norm(text)) break
+      if (tries >= 1) { await b.clearFocused().catch(() => {}); throw new Error('私信输入框里的字对不上，没发') }
+    }
+    const startedAt = Date.now()
     const sent = /\/v1\/message\/send/
     let resp = b.waitResponse(sent, 8000)
     await b.pressEnter()
@@ -473,6 +481,12 @@ export function createSite({ browser, log }) {
         await b.press('[data-aurabot="dm-send"]')
         r = await resp
       }
+    }
+    // 没等到发送接口的回应，不等于没发出去：看一眼聊天记录里是不是已经有这句了（不然会当成失败、下次又回一遍）
+    if (!r) {
+      await sleep(1500)
+      const mine = (await readChat()).filter((m) => m.at >= startedAt - 60_000 && norm(m.text) === norm(text))
+      if (mine.length) return { ok: true }
     }
     if (!r || r.status !== 200) {
       await b.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(DM_EDIT)}); e && e.focus() })()`).catch(() => {})
