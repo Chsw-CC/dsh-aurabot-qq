@@ -20,6 +20,7 @@ import { redact } from '../core/redact.js'
 import { defaultModel, pickReasoningEffort, canSeeImages } from '../core/llm.js'
 import { resolveChatModel } from './chat-model.js'
 import { createFaces, textToSegments, stripFaceTags } from './faces.js'
+import { expandMentions, hasMention } from './mentions.js'
 
 // QQ 会话的工作区目录，第一次收到消息时自动创建。面板「连接」页能改（config.workspaceDir，#32）；
 // 没填就用环境变量 AURABOT_WORKSPACE，再没有：老安装沿用 C:\Aurabot\qq-chats，新安装放在用户目录下（不用往 C 盘根目录写）
@@ -70,6 +71,22 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const groupNames = new Map()
   const recentMedia = new Map() // chatId → [{ seg, userId, at, sticker }] 最近发来的图片和表情
   const faces = createFaces({ onebot, log }) // QQ 系统表情：<face:名字> ↔ 编号
+  const groupMembers = new Map() // groupId → { at, list }  群成员（真 @ 时按名字找人，缓存 10 分钟）
+  const saidElsewhere = new Map() // chatId → [{ at, text }]  别处安排她在这里发的话，下次这个聊天交给她时补进去
+
+  async function membersOf(groupId) {
+    const hit = groupMembers.get(groupId)
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.list
+    try {
+      const r = await onebot.call('get_group_member_list', { group_id: Number(groupId) }, { timeoutMs: 15000 })
+      const list = Array.isArray(r) ? r : r?.data || []
+      groupMembers.set(groupId, { at: Date.now(), list })
+      return list
+    } catch (error) {
+      log.debug('拉群成员失败，@ 按文字发：', error.message)
+      return hit?.list || []
+    }
+  }
   const sentIds = new Set()
   const stats = { received: 0, sent: 0, voice: 0, stickers: 0, errors: 0, day: new Date().toDateString() }
   let selfId = ''
@@ -360,9 +377,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   /** replyId：要引用回复的那条 QQ 消息（可选）。 */
   const quote = (replyId) => (replyId ? [{ type: 'reply', data: { id: String(replyId) } }] : [])
 
-  async function sendText(chatId, text, replyId) {
+  async function sendText(chatId, text, replyId, missed) {
     // 文字里的 <face:名字> 换成 QQ 系统表情，和文字在同一条消息里；系统表情关着就去掉标签
-    const segs = getConfig().stickers.faces ? textToSegments(text, faces.idOf) : [{ type: 'text', data: { text: stripFaceTags(text) } }]
+    let segs = getConfig().stickers.faces ? textToSegments(text, faces.idOf) : [{ type: 'text', data: { text: stripFaceTags(text) } }]
+    // 群里的 @名字 / <at:QQ号> 换成真 @（对方会收到提醒）
+    if (chatId.startsWith('group:') && hasMention(text)) segs = expandMentions(segs, await membersOf(chatId.slice(6)), missed)
     if (!segs.length || (segs.length === 1 && segs[0].type === 'text' && !segs[0].data.text.trim())) return null
     return sendSegments(chatId, [...quote(replyId), ...segs], (replyId ? '[引用] ' : '') + text.slice(0, 60))
   }
@@ -484,11 +503,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
     // 引用回复：她写的编号换成那条群消息的 QQ 消息 ID（语音条不能带引用，就不引用了）
     const refs = inGroup ? groupRefs.get(chatId.slice(6)) || {} : {}
+    const missedAt = [] // 写了 @ 却没对上群里人的名字
     for (let i = 0; i < items.length; i++) {
       const it = items[i]
       const replyId = it.replyTo ? refs[it.replyTo] : undefined
       if (it.replyTo && !replyId) log.debug(`${chatId}：引用的编号 ${it.replyTo} 对不上，正常发`)
-      if (it.kind === 'text') await sendText(chatId, it.value, replyId)
+      if (it.kind === 'text') await sendText(chatId, it.value, replyId, missedAt)
       else if (it.kind === 'voice') {
         if (cfg.voice.enabled) await sendVoice(chatId, it.value)
         else await sendText(chatId, it.value, replyId)
@@ -505,10 +525,14 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       groupSaid.set(gid, said)
       groupEngaged.set(gid, Date.now() + ENGAGE_MS) // 在群里说了话 = 加入了话题
     }
-    logChat(chatId, 'bot', items.map((i) => (i.kind === 'text' || i.kind === 'voice' ? i.value : `[${i.kind}]`)).join(' '))
+    const said = items.map((i) => (i.kind === 'text' || i.kind === 'voice' ? i.value : `[${i.kind}]`)).join(' ')
+    logChat(chatId, 'bot', said)
+    // 不是这个聊天自己那一轮发的（主人在私聊里让她去群里说、扩展模块代发）：记下来，下次这个聊天交给她时告诉她自己说过什么
+    if (!opts.own) saidElsewhere.set(chatId, [...(saidElsewhere.get(chatId) || []), { at: Date.now(), text: said.slice(0, 300) }].slice(-5))
     lastChatAt = Date.now()
     if (chatId === `private:${cfg.ownerQQ}`) lastBotToOwner = { at: Date.now(), text: items.filter((i) => i.kind === 'text' || i.kind === 'voice').map((i) => i.value).join('\n') }
     onActivity?.({ kind: 'out', chatId, reply: text, userText: opts.userText || '' })
+    return { missedAt }
   }
 
   // ---------- 盯 DSH 会话：一轮结束就发 ----------
@@ -557,7 +581,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       }
       if (!text) return release(chatId)
       // 发完再放开：发送期间来的消息也攒到下一段
-      deliver(chatId, text, { wantVoice, userText: st.lastText || '' }).catch((error) => log.warn('发送出错：', error.message)).finally(() => release(chatId))
+      deliver(chatId, text, { wantVoice, userText: st.lastText || '', own: true }).catch((error) => log.warn('发送出错：', error.message)).finally(() => release(chatId))
     }
   }
 
@@ -893,7 +917,8 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const text = (older.length ? `【群聊 ${name}】之前在聊：\n${older.map(line).join('\n')}\n\n` : '') +
       `【群聊 ${name}】刚才新说的（${fresh.length} 条）${hint}\n${numbered.join('\n')}\n\n` +
       '把这一段当成整体来回：一般说一两句就好，回给最需要回的那个人或者整个话题，不要一条一条地挨个回。\n' +
-      '大多数时候直接说就行。只有想专门接其中某一条、而直接说别人会看不出你在回谁时（比如那条已经被后面的话刷上去了、或者你在回某个人随口一提的事），才在那句话开头写 <reply:编号>，会以「引用回复」发出；一次最多引用一条。'
+      '大多数时候直接说就行。只有想专门接其中某一条、而直接说别人会看不出你在回谁时（比如那条已经被后面的话刷上去了、或者你在回某个人随口一提的事），才在那句话开头写 <reply:编号>，会以「引用回复」发出；一次最多引用一条。\n' +
+      '要 @ 某个人（对方会收到提醒），写 <at:QQ号>，QQ 号就是上面名字后面括号里的数字。'
     return { text, query, speakers }
   }
 
@@ -1043,6 +1068,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       } catch (error) {
         log.warn('扩展模块改提示词出错：', error.message)
       }
+    }
+    const earlier = saidElsewhere.get(chat.chatId)
+    if (earlier?.length) {
+      saidElsewhere.delete(chat.chatId)
+      const lines = earlier.map((x) => `${new Date(x.at).toTimeString().slice(0, 5)} 你：${x.text}`)
+      content = [{ type: 'text', text: `【你之前在这个聊天里主动说过（是在别处安排下发的，这里的人都看到了）】\n${lines.join('\n')}\n` }, ...content]
     }
     const { agent, sessionId } = await agentFor(chat)
     const key = sessionKey(sessionId)
