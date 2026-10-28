@@ -453,8 +453,8 @@ export function createDouyin({ getConfig, setOwner, hub, memory, log, site: inje
     try {
       const r = await ready(s)
       if (!r.ok) return r
-      const sec = who.match(/douyin\.com\/user\/(MS4w[\w-]+)/)?.[1] || (/^MS4w[\w-]+$/.test(who) ? who : '')
-      const u = sec ? await site.user(sec) : await site.findByDouyinId(who.replace(/^@/, ''))
+      // 主页链接 / v.douyin.com 短链 / secUid / 抖音号都行（短链会在浏览器里跳一下取主页）
+      const u = await site.profileOf(who)
       await site.dms(u.uid, { secUid: u.secUid }) // 列表里没有会话时会从主页发起
       if (getConfig().dryRun) {
         log.info(`试运行：本来要给抖音上的 ${u.nickname} 发私信：${say}`)

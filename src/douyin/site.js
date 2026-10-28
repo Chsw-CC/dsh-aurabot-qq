@@ -559,6 +559,28 @@ export function createSite({ browser, log }) {
     return { secUid: String(u.sec_uid), uid: String(u.uid || ''), nickname: clean(u.nickname, 40), douyinId: String(u.unique_id || u.short_id || '') }
   }
 
+  /**
+   * 认一个人：主页链接 / secUid 直接查；v.douyin.com 短链先在浏览器里跳一下取主页；
+   * 其余当抖音号搜。找不到会抛错。
+   */
+  async function profileOf(link) {
+    const s = String(link || '').trim()
+    if (!s) throw new Error('没给抖音主页链接或抖音号')
+    const direct = s.match(/douyin\.com\/user\/(MS4w[\w-]+)/)?.[1] || (/^MS4w[\w-]+$/.test(s) ? s : '')
+    if (direct) return user(direct)
+    if (/^https?:\/\//i.test(s)) {
+      await b.goto(s)
+      for (let i = 0; i < 10; i++) {
+        const href = String(await b.evaluate('location.href').catch(() => ''))
+        const sec = href.match(/douyin\.com\/user\/(MS4w[\w-]+)/)?.[1]
+        if (sec) return user(sec)
+        await sleep(1000)
+      }
+      throw new Error('这个链接不是抖音主页（或者没跳过去）')
+    }
+    return findByDouyinId(s.replace(/^@/, ''))
+  }
+
   /** 按抖音号搜人，只认抖音号完全一样的。 */
   async function findByDouyinId(douyinId) {
     const j = await api('/aweme/v1/web/discover/search/', { keyword: douyinId, search_channel: 'aweme_user_web', search_source: 'normal_search', query_correct_type: 1, is_filter_search: 0, offset: 0, count: 10 })
@@ -604,5 +626,5 @@ export function createSite({ browser, log }) {
     return { ok: true, loggedIn: false, shot: await loginShot() }
   }
 
-  return { ensure, self, user, findByDouyinId, feed, detail, comments, verify, watch, like, comment, share, dms, sendDm, screenshot: () => b.screenshot().catch(() => ''), loginStart, loginPoll, show: (v) => b.show(v), connected: () => b.connected() }
+  return { ensure, self, user, profileOf, findByDouyinId, feed, detail, comments, verify, watch, like, comment, share, dms, sendDm, screenshot: () => b.screenshot().catch(() => ''), loginStart, loginPoll, show: (v) => b.show(v), connected: () => b.connected() }
 }

@@ -128,6 +128,12 @@ function fakeSite({ feed = [], loggedIn = true, verify = '', likeError = null, c
     share: async (id, who) => { if (shareFails) throw Object.assign(new Error('分享面板里没找到主人（可能互相没关注、私信不通）'), { code: 'share' }); calls.share.push([id, who.secUid, who.nickname]); return { ok: true } },
     user: async (secUid) => ({ secUid, uid: '4182', nickname: '主人的新昵称', douyinId: 'master01' }),
     findByDouyinId: async (id) => { if (id !== 'master01') throw new Error('按抖音号没搜到这个人'); return { secUid: 'MS4wOWNER', uid: '4182', nickname: '主人小号', douyinId: 'master01' } },
+    profileOf: async (link) => {
+      const sec = String(link).match(/douyin\.com\/user\/(MS4w[\w-]+)/)?.[1] || (/^MS4w[\w-]+$/.test(String(link)) ? String(link) : '')
+      if (sec) return { secUid: sec, uid: '4182', nickname: '主人的新昵称', douyinId: 'master01' }
+      if (String(link).includes('master01')) return { secUid: 'MS4wOWNER', uid: '4182', nickname: '主人小号', douyinId: 'master01' }
+      throw new Error('按抖音号没搜到这个人')
+    },
     dms: async (uid) => { calls.dms++; calls.dmUid = uid; return chat.slice() },
     sendDm: async (text) => { if (calls.dmFail > 0) { calls.dmFail--; throw new Error('私信输入框点不进去') } calls.dm.push(text); return { ok: true } },
     loginStart: async () => ({ ok: true, loggedIn: false, shot: 'data:image/png;base64,QR' }),
@@ -543,6 +549,23 @@ test('分享上限用完时不会绕开限制，主人要求刷视频时明确�
   const browse = await dy.run({ force: true, ownerAsked: true })
   assert.equal(browse.ok, false)
   assert.match(browse.message, /分享次数用完/)
+})
+
+test('主动私信支持主页链接和短链（交给 site.profileOf 认人）', async () => {
+  const { dy, fs } = setup({ owner: OWNER })
+  fs.profileOf = async (link) => {
+    fs.calls.profileOf = link
+    if (link.includes('v.douyin.com')) return { secUid: 'MS4wSHORT', uid: '5151', nickname: '短链的人' }
+    return { secUid: 'MS4wLINK', uid: '5252', nickname: '链接的人' }
+  }
+  fs.dms = async (uid, opts = {}) => { fs.calls.dmUid = uid; fs.calls.dmSecUid = opts.secUid || ''; return [] }
+  const shortLink = await dy.directDm({ target: 'https://v.douyin.com/L49-ZhDXpvs/', text: '短链' })
+  assert.equal(shortLink.ok, true, shortLink.message)
+  assert.equal(fs.calls.profileOf, 'https://v.douyin.com/L49-ZhDXpvs/')
+  assert.deepEqual(fs.calls.dm.at(-1), '短链')
+  const pageLink = await dy.directDm({ target: 'https://www.douyin.com/user/MS4wLINK', text: '主页' })
+  assert.equal(pageLink.ok, true, pageLink.message)
+  assert.equal(fs.calls.dmUid, '5252')
 })
 
 test('主人指定给某人发抖音私信：认人、打开会话（没有就从主页发起）、发送并记录', async () => {
