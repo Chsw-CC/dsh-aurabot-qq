@@ -30,13 +30,13 @@ QQ ⇄ SnowLuma（OneBot v11，你自己安装）⇄ Aurabot 插件 ⇄ DSH 会�
 Windows 桌面版：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:accomplish07zrh-eng/dsh-aurabot-qq
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq
 ```
 
 Linux / Docker：用 DSH 自己的命令行（把 `<profile>` 换成你在用的 profile；在容器里就进容器执行）：
 
 ```bash
-dsh plugin --profile <profile> add github:accomplish07zrh-eng/dsh-aurabot-qq
+dsh plugin --profile <profile> add github:Chsw-CC/dsh-aurabot-qq
 ```
 
 装好后重启 DSH，打开左侧栏「自动化任务」下的 **Aurabot**，跟着设置向导走：
@@ -56,12 +56,43 @@ dsh plugin --profile <profile> add github:accomplish07zrh-eng/dsh-aurabot-qq
 
 ## 升级
 
-再跑一遍上面的安装命令（拉取 GitHub 上的最新版），然后重启 DSH。设置、人格、记忆都会保留；有新版本时面板里也会提示。Windows 桌面版：
+**升级和安装不是同一条命令**：`add` 是「装上去并写进依赖表」，`update` 才是「照最新版本重装」。只跑 `add` 的话，pnpm 会沿用 lockfile 里锁定的那个 commit，不会跟到最新。
+
+Windows 桌面版（升级用这条）：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:accomplish07zrh-eng/dsh-aurabot-qq
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop update dsh-aurabot-qq
 ```
 
+想钉到某个版本：
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq#v1.1.22-heybox.2
+```
+
+Linux / Docker：
+
+```bash
+dsh plugin --profile <profile> update dsh-aurabot-qq
+```
+
+升级完重启 DSH。设置、人格、记忆都在 `%USERPROFILE%\.dsh\plugins-data\aurabot\`，跟插件目录分开，升级不会丢。
+
+### 直接下载压缩包
+
+不想用 git 依赖的，也可以下 Release 里的 zip：
+
+- 最新版：<https://github.com/Chsw-CC/dsh-aurabot-qq/releases/latest>
+- 全部版本：<https://github.com/Chsw-CC/dsh-aurabot-qq/releases>
+
+解压后把整个目录放到 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-aurabot-qq`，重启 DSH。
+
+### 跟上原作者的新版本
+
+1. 拉官方最新：`git fetch https://github.com/accomplish07zrh-eng/dsh-aurabot-qq.git main`
+2. 在 `heybox-followup` 分支上 rebase 到官方 main：`git rebase FETCH_HEAD`
+3. 推回 fork：`git push --force-with-lease origin heybox-followup`
+4. 本机跑 `update` 命令，重启 DSH
 ## 设计要点
 
 | 方面 | 做法 |
@@ -123,7 +154,7 @@ npm test
 ## 联系我们
 
 - **协作 / 交流 QQ 群**：**554850395**（项目维护和想法讨论都在这里；装不上、报错了也可以进来问，尽量先带上面板「日志」里的报错和版本号）
-- **GitHub**：[issue](https://github.com/accomplish07zrh-eng/dsh-aurabot-qq/issues) 报 bug / 提需求，[PR](https://github.com/accomplish07zrh-eng/dsh-aurabot-qq/pulls) 提代码；提之前先翻一下有没有重复。贡献者名单见版本说明和 PR 记录。
+- **GitHub**：[issue](https://github.com/Chsw-CC/dsh-aurabot-qq/issues) 报 bug / 提需求，[PR](https://github.com/Chsw-CC/dsh-aurabot-qq/pulls) 提代码；提之前先翻一下有没有重复。贡献者名单见版本说明和 PR 记录。
 
 ## 桌宠的来源
 
