@@ -66,42 +66,45 @@ dsh plugin --profile <profile> add github:Chsw-CC/dsh-aurabot-qq
 > 用命令行装（推荐，能跟着更新）：见上面「## 安装」。想钉死某个版本就写 `github:Chsw-CC/dsh-aurabot-qq#<tag>`。
 ## 升级
 
-再跑一遍安装命令（拉取最新版），然后重启 DSH。设置、人格、记忆都会保留（在 `%USERPROFILE%\.dsh\plugins-data\aurabot\`，升级不碰）；有新版本时面板里也会提示。
+**升级和安装不是同一条命令**：`add` 是「装上去并写进依赖表」，`update` 才是「照最新版本重装」。只跑 `add` 的话，pnpm 会沿用 lockfile 里锁定的那个 commit，不会跟到最新。
 
-**本仓库（带小黑盒的那份 fork）**：`Chsw-CC/dsh-aurabot-qq`，默认分支 `heybox-work`。
-
-Windows 桌面版：
+Windows 桌面版（升级用这条）：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop update dsh-aurabot-qq
 ```
 
-想钉死某个分支或提交（默认分支变了也不受影响）：
+想升级到某个特定版本 / 分支（比如原作者发新版、我们 rebase 之后）：
 
 ```powershell
-# 跟我们的 heybox-work 分支
+# 重新指到分支头，并强制刷新锁文件
 & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq#heybox-work
 
-# 跟某个具体提交（最稳，不会被动更新）
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq#04ba908
+# 钉某个提交或 tag（不会被动更新，最稳）
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq#v1.1.23
 ```
 
 Linux / Docker：
 
 ```bash
-dsh plugin --profile <profile> add github:Chsw-CC/dsh-aurabot-qq
+dsh plugin --profile <profile> update dsh-aurabot-qq
 ```
 
-**跟上原作者的新版本**（他发新版后，把我们的改动重新叠到他的新版上）：
+升级完重启 DSH。设置、人格、记忆都在 `%USERPROFILE%\.dsh\plugins-data\aurabot\`，跟插件目录分开，升级不会丢；面板里也会提示有新版本。
+
+**本仓库（带小黑盒的 fork）**：`Chsw-CC/dsh-aurabot-qq`，默认分支 `heybox-work`。首次安装见上一节，用的是 `add`。
+
+### 跟上原作者的新版本
+
+他发新版后，把我们的改动重新叠到他的新版上：
 
 1. 拉官方最新：`git fetch https://github.com/accomplish07zrh-eng/dsh-aurabot-qq.git main`
 2. 在 `heybox-work` 分支上 rebase 到官方 main：`git rebase FETCH_HEAD`
    - 冲突只会出现在 `package.json`（版本号）、`CHANGELOG.md`、`README.md`、`client/client.js`、`src/chat/access.js`、`src/core/config.js`、`src/modules/index.js` 这 7 个文件上，都是「他那半边保留 + 我们这半边追加」的合并
 3. 推回 fork：`git push --force-with-lease origin heybox-work`
-4. 本机按上面第一条命令重装，重启 DSH
+4. 本机跑一遍上面的 `update` 命令，重启 DSH
 
-> 我们的改动只有 11 个文件（4 个新增 + 7 个追加），其余 150 多个文件跟官方一字不差。原作者更新后 rebase 的冲突面很小。
-
+> 我们的改动只有 11 个文件（4 个新增 + 7 个追加），其余 150 多个文件跟官方一字不差，rebase 的冲突面很小。
 ## 设计要点
 
 | 方面 | 做法 |
