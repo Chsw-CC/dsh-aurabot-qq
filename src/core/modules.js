@@ -606,7 +606,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
 
   async function handle(path, req, res) {
     const r = routes.get(path)
-    if (!r || !live.has(r.id)) return { ok: false, message: '这个功能所在的模块没开（面板「扩展」里看看）', moduleOff: true }
+    if (!r || !live.has(r.id)) return { ok: false, message: '这个功能所在的模块没开（面板「已安装」里看看）', moduleOff: true }
     return r.handler(req, res)
   }
 
@@ -730,7 +730,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
     return `帮我修改 Aurabot（大肥鱼 QQ 插件）的扩展模块：${dir}\n`
       + `先完整读一遍「${join(userDir(), DOC)}」了解模块怎么写、能用哪些接口，再按我的要求改：\n`
       + '【这里写你想让她多会什么、改成什么样】\n'
-      + `只改 ${userDir()} 里的文件，不要动插件本身的代码；改完保存会自动重新加载，到面板「扩展」页看有没有报错，再告诉我怎么试。`
+      + `只改 ${userDir()} 里的文件，不要动插件本身的代码；改完保存会自动重新加载，到面板「已安装」页看有没有报错，再告诉我怎么试。`
   }
 
   const publicHandle = { use: exportsOf, has: (id) => live.has(id), list: () => status().map(({ id, name, running }) => ({ id, name, running })), emit }
