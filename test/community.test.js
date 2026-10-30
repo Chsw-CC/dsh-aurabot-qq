@@ -136,3 +136,12 @@ test('迁移：只装在用的，只装一次，卸载后不再装；失败下�
   await fail.c.migrate()
   assert.equal(fail.cfg().communityMigrated.douyin, undefined)
 })
+
+test('迁移：插件卸载后旧实例不再安装、不写配置', async () => {
+  let alive = true
+  let config = { setupDone: true, douyin: { enabled: true } }
+  let writes = 0
+  const c = createCommunity({ mods: { status: () => [], sync: async () => {}, stop: () => true }, getConfig: () => config, setConfig: (n) => { writes++; config = n }, log: { info() {}, warn() {} }, version: '1.2.0', alive: () => alive, registryUrl: 'https://x/index.json', fetcher: async () => { alive = false; return { ok: false, status: 500 } } })
+  await c.migrate()
+  assert.equal(writes, 0)
+})

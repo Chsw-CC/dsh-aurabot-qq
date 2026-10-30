@@ -370,11 +370,12 @@ export function apply(ctx) {
   }
   mods.listen('module/start', (id) => { if (id === 'pet') injectPetPort() })
 
-  const community = createCommunity({ mods, getConfig, setConfig, log, version: VERSION })
+  let unloaded = false
+  const community = createCommunity({ mods, getConfig, setConfig, log, version: VERSION, alive: () => !unloaded })
   const booted = mods.boot()
   booted.then(() => injectPetPort()).catch(() => {})
-  booted.then(() => community.migrate()).catch((error) => log.warn('搬到社区库的模块处理失败：', error.message))
-  booted.then(() => bridge.refresh())
+  booted.then(() => (unloaded ? [] : community.migrate())).catch((error) => log.warn('搬到社区库的模块处理失败：', error.message))
+  booted.then(() => { if (!unloaded) bridge.refresh() })
 
   // ---------- 盯会话：一轮结束就发回 QQ ----------
   ctx.effect(() => {
@@ -415,8 +416,11 @@ export function apply(ctx) {
   }
   const safe = (fn, label) => () => { Promise.resolve().then(fn).catch((error) => log.warn(`${label}出错：`, error.message)) }
   ctx.effect(() => ctx.interval(safe(watchdog, '看门狗'), 30_000), 'aurabot: 看门狗')
-  setTimeout(safe(watchdog, '看门狗'), 3000).unref?.()
+  const firstWatch = setTimeout(safe(watchdog, '看门狗'), 3000)
+  firstWatch.unref?.()
   ctx.effect(() => () => {
+    unloaded = true
+    clearTimeout(firstWatch)
     dangerGuard?.dispose()
     hub.dispose()
     bridge.dispose()

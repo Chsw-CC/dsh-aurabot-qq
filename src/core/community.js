@@ -80,7 +80,7 @@ function safeName(name) {
   return name.split('/').every((seg) => seg && seg !== '.' && seg !== '..')
 }
 
-export function createCommunity({ mods, getConfig, setConfig, log, version, registryUrl = process.env.AURABOT_REGISTRY_URL || REGISTRY_URL, fetcher = fetch }) {
+export function createCommunity({ mods, getConfig, setConfig, log, version, alive = () => true, registryUrl = process.env.AURABOT_REGISTRY_URL || REGISTRY_URL, fetcher = fetch }) {
   const dirOf = (id) => join(userDir(), id)
   let cache = null // { at, index }
   let busy = null // 同一时间只跑一个安装 / 卸载
@@ -221,6 +221,7 @@ export function createCommunity({ mods, getConfig, setConfig, log, version, regi
     const done = { ...(getConfig().communityMigrated || {}) }
     const result = []
     for (const [id, inUse] of Object.entries(MOVED)) {
+      if (!alive()) return result
       if (done[id]) continue
       const cfg = getConfig()
       if (hasFolder(id)) done[id] = 'kept' // 已有同名文件夹：用户的版本优先
@@ -232,6 +233,7 @@ export function createCommunity({ mods, getConfig, setConfig, log, version, regi
         else log.warn(`搬到社区库的模块「${id}」没装上，下次启动再试：`, r.message)
       }
     }
+    if (!alive()) return result // 插件已卸载：旧实例不能把旧配置写回去
     setConfig({ ...getConfig(), communityMigrated: done })
     return result
   }

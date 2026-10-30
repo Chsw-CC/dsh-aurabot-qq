@@ -53,6 +53,7 @@ const sessionKey = (id) => {
  */
 // 模拟测试：这里面发出去的消息只记下来，不真发
 const captureStore = new AsyncLocalStorage()
+const failStore = new AsyncLocalStorage() // deliver 这一次里发失败的原因，好让调用方如实告诉她
 export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildTools, contextProviders, onActivity, memoryScore, onCommand, isMuted, moodEffects, localApi, hooks, availableModels, toolsGeneration }) {
   // 心情对行为的影响（表情 / 语音概率、回复快慢、插话积极程度），没接就是 1
   const mood = () => (typeof moodEffects === 'function' ? moodEffects() : null) || { sticker: 1, voice: 1, delay: 1, chatty: 1 }
@@ -511,6 +512,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     } catch (error) {
       bump('errors')
       log.warn(`发到 ${chatId} 失败：`, error.message)
+      failStore.getStore()?.push(error.message)
       return null
     }
   }
@@ -739,23 +741,29 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const explicit = items.some((item) => item.replyTo)
     const firstSendable = items.findIndex((item) => item.kind === 'text' || item.kind === 'voice' || item.kind === 'image' || (item.kind === 'sticker' && cfg.stickers.enabled && Boolean(item.value && typeof item.value === 'object' ? item.value : stickers.match(item.value))))
     const missedAt = [] // 写了 @ 却没对上群里人的名字
-    for (let i = 0; i < items.length; i++) {
-      if (disposed) return
-      const it = items[i]
-      const selected = it.replyTo ? refs[it.replyTo] : (!explicit && i === firstSendable ? opts.autoReply : null)
-      const replyId = selected?.mid
-      const userId = selected && opts.autoReply?.uid === selected.uid ? selected.uid : undefined
-      if (it.replyTo && !replyId) log.debug(`${chatId}：引用的编号 ${it.replyTo} 对不上，正常发`)
-      if (it.kind === 'text') await sendText(chatId, it.value, replyId, missedAt, userId)
-      else if (it.kind === 'voice') {
-        if (cfg.voice.enabled) await sendVoice(chatId, it.value, replyId, userId)
-        else await sendText(chatId, it.value, replyId, missedAt, userId)
-      } else if (it.kind === 'sticker') await sendSticker(chatId, it.value, replyId, userId)
-      else if (it.kind === 'poke') { if (!opts.simulate) await pokeBack(chatId) }
-      else if (it.kind === 'image') await sendImage(chatId, it.value, replyId, userId)
-      if (i < items.length - 1 && !opts.simulate) await pause(bubbleDelay(items[i + 1].kind === 'text' ? items[i + 1].value : '') * mood().delay)
-    }
+    const failures = []
+    await failStore.run(failures, async () => {
+      for (let i = 0; i < items.length; i++) {
+        if (disposed) return
+        const it = items[i]
+        const selected = it.replyTo ? refs[it.replyTo] : (!explicit && i === firstSendable ? opts.autoReply : null)
+        const replyId = selected?.mid
+        const userId = selected && opts.autoReply?.uid === selected.uid ? selected.uid : undefined
+        if (it.replyTo && !replyId) log.debug(`${chatId}：引用的编号 ${it.replyTo} 对不上，正常发`)
+        if (it.kind === 'text') await sendText(chatId, it.value, replyId, missedAt, userId)
+        else if (it.kind === 'voice') {
+          if (cfg.voice.enabled) await sendVoice(chatId, it.value, replyId, userId)
+          else await sendText(chatId, it.value, replyId, missedAt, userId)
+        } else if (it.kind === 'sticker') await sendSticker(chatId, it.value, replyId, userId)
+        else if (it.kind === 'poke') { if (!opts.simulate) await pokeBack(chatId) }
+        else if (it.kind === 'image') await sendImage(chatId, it.value, replyId, userId)
+        if (i < items.length - 1 && !opts.simulate) await pause(bubbleDelay(items[i + 1].kind === 'text' ? items[i + 1].value : '') * mood().delay)
+      }
+    })
+    if (disposed) return
     if (opts.simulate) return items
+    // 一条都没发出去：不记流水，她没说出口的话不能算说过
+    if (failures.length && failures.length >= items.filter((i) => i.kind !== 'poke').length) return { missedAt, failed: failures.length, errors: failures }
     if (inGroup) {
       const gid = chatId.slice(6)
       const said = (groupSaid.get(gid) || []).filter((t) => Date.now() - t < 3600_000)
@@ -770,7 +778,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     lastChatAt = Date.now()
     if (chatId === `private:${cfg.ownerQQ}`) lastBotToOwner = { at: Date.now(), text: items.filter((i) => i.kind === 'text' || i.kind === 'voice').map((i) => i.value).join('\n') }
     onActivity?.({ kind: 'out', chatId, reply: text, userText: opts.userText || '' })
-    return { missedAt }
+    return { missedAt, failed: failures.length, errors: failures }
   }
 
   // ---------- 盯 DSH 会话：一轮结束就发 ----------
