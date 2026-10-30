@@ -280,3 +280,58 @@ test('@ 了别人时不算叫她，但只在开关打开时生效（#143）', as
   assert.notEqual(on.reason, off.reason)
   assert.match(String(off.reason), /叫到了/)
 })
+
+function historyTool({ mode, level = 'chat', chat = { kind: 'group', groupId: '100', chatId: 'group:100' }, owner = false }) {
+  const calls = []
+  const builders = []
+  const onebot = {
+    call: async (action, params) => {
+      calls.push([action, params])
+      if (action === 'get_group_list') return [{ group_id: 100, group_name: '当前群' }, { group_id: 200, group_name: '游戏群' }, { group_id: 300, group_name: '游戏二群' }, { group_id: 999, group_name: '外面的游戏群' }]
+      return { messages: [{ time: 1, user_id: 7, sender: { nickname: '群友' }, message: [{ type: 'text', data: { text: '你好' } }] }] }
+    },
+  }
+  qqTools.setup({
+    core: { hub: { turnHasOwner: () => owner }, onebot },
+    config: () => ({ botQQ: '1', files: { enabled: false }, allow: { groups: ['100', '200', '300'] }, group: { crossRead: mode } }),
+    tool: (builder) => builders.push(builder),
+  })
+  const tool = builders[0]({ chat, level, sessionId: 's' }).find((x) => x.name === 'qq_chat_history')
+  return { tool, calls }
+}
+
+test('跨群只读（#120）：默认没有这个参数，直接传也不能看', async () => {
+  const { tool, calls } = historyTool({ mode: 'off', owner: true })
+  assert.equal(JSON.stringify(tool.parameters ?? tool).includes('想看白名单'), false)
+  assert.equal((await tool.execute({ group: '200' })).ok, false)
+  assert.equal(calls.length, 0)
+})
+
+test('跨群只读（#120）：owner 档只认主人开口，主人私聊也行', async () => {
+  assert.equal((await historyTool({ mode: 'owner' }).tool.execute({ group: '200' })).ok, false)
+  const inGroup = historyTool({ mode: 'owner', owner: true })
+  assert.equal((await inGroup.tool.execute({ group: '200' })).ok, true)
+  assert.equal(inGroup.calls.at(-1)[1].group_id, 200)
+  const priv = historyTool({ mode: 'owner', level: 'full', chat: { kind: 'private', userId: '5', chatId: 'private:5' } })
+  assert.equal((await priv.tool.execute({ group: '200' })).ok, true)
+})
+
+test('跨群只读（#120）：白名单外读不到，群名能解析，重名要说清楚', async () => {
+  const a = historyTool({ mode: 'all' })
+  const out = await a.tool.execute({ group: '999' })
+  assert.equal(out.ok, false)
+  assert.doesNotMatch(out.message, /外面的/)
+  assert.equal(a.calls.some(([x]) => x === 'get_group_msg_history'), false)
+  const b = historyTool({ mode: 'all' })
+  assert.equal((await b.tool.execute({ group: '二群' })).ok, true)
+  assert.equal(b.calls.at(-1)[1].group_id, 300)
+  const c = historyTool({ mode: 'all' })
+  assert.match((await c.tool.execute({ group: '游戏' })).message, /好几个群/)
+  assert.equal(c.calls.some(([x]) => x === 'get_group_msg_history'), false)
+})
+
+test('跨群只读（#120）：不传 group 时行为不变', async () => {
+  const { tool, calls } = historyTool({ mode: 'off' })
+  assert.equal((await tool.execute({})).ok, true)
+  assert.equal(calls[0][1].group_id, 100)
+})

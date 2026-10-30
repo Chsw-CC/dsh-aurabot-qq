@@ -3,6 +3,26 @@
 import { defineTool, str, int } from '../../tools/tools.js'
 import { parseMessageEvent } from '../../chat/inbound.js'
 
+/** 这一轮能不能看别的群：off 不能；owner 主人开口时；all 能接触到她的人都行。 */
+function canReadOtherGroups(mode, hub, sessionId, level) {
+  if (mode === 'all') return true
+  return mode === 'owner' && (level === 'full' || Boolean(hub.turnHasOwner?.(sessionId)))
+}
+
+/** 把群号或群名解析成白名单里的群号；对不上就把能看的群列出来。 */
+async function resolveGroup(onebot, allow, wanted) {
+  const allowed = allow.map(String)
+  const text = String(wanted).trim()
+  if (allowed.includes(text)) return { id: text }
+  let list = []
+  try { list = await onebot.call('get_group_list', {}, { timeoutMs: 15000 }) } catch (error) {}
+  const groups = (Array.isArray(list) ? list : []).filter((g) => allowed.includes(String(g.group_id)))
+  const hits = groups.filter((g) => String(g.group_name || '').includes(text))
+  if (hits.length === 1) return { id: String(hits[0].group_id) }
+  const names = groups.map((g) => `${g.group_name}（${g.group_id}）`).join('、') || '白名单里没有群'
+  return { error: `${hits.length ? '对上了好几个群，说具体点' : `白名单里没有「${text}」`}。能看的群：${names}` }
+}
+
 export default {
   id: 'qq-tools',
   name: '基础 QQ 工具',
@@ -10,22 +30,34 @@ export default {
   description: '翻当前聊天的记录（qq_chat_history）；主人私聊里让她主动给白名单里的人和群发消息（qq_send_message）、把本机文件当文件发出去（qq_send_file）',
   setup(api) {
     const { hub, onebot } = api.core
-    api.tool(({ chat, level }) => {
+    api.tool(({ chat, level, sessionId }) => {
       if (chat.kind === 'system') return []
+      const crossRead = api.config().group?.crossRead || 'off'
       const tools = [defineTool({
         name: 'qq_chat_history',
         description: '翻翻当前这个聊天之前的聊天记录（只读，最多 50 条）。想不起前面聊过什么、别人问「刚才谁说的」、要回顾一段对话时用。',
-        properties: { count: int('要翻多少条，默认 20，最多 50') },
-        execute: async ({ count }) => {
+        properties: {
+          count: int('要翻多少条，默认 20，最多 50'),
+          ...(crossRead === 'off' ? {} : { group: str('想看白名单里另一个群时填群名或群号；不填就是当前聊天') }),
+        },
+        execute: async ({ count, group }) => {
           const n = Math.max(1, Math.min(50, Number(count) || 20))
-          const r = chat.kind === 'group'
-            ? await onebot.call('get_group_msg_history', { group_id: Number(chat.groupId), count: n }, { timeoutMs: 15000 })
+          const cfg = api.config()
+          let groupId = chat.kind === 'group' ? chat.groupId : ''
+          if (group) {
+            if (!canReadOtherGroups(cfg.group?.crossRead, hub, sessionId, level)) return { ok: false, message: '现在不能看别的群：要主人开口才行' }
+            const hit = await resolveGroup(onebot, cfg.allow?.groups || [], group)
+            if (hit.error) return { ok: false, message: hit.error }
+            groupId = hit.id
+          }
+          const r = groupId
+            ? await onebot.call('get_group_msg_history', { group_id: Number(groupId), count: n }, { timeoutMs: 15000 })
             : await onebot.call('get_friend_msg_history', { user_id: Number(chat.userId), count: n }, { timeoutMs: 15000 })
           const msgs = (r?.messages || []).slice(-n)
           if (!msgs.length) return { ok: true, message: '没翻到聊天记录' }
           const self = String(api.config().botQQ)
           const lines = msgs.map((m) => {
-            const p = parseMessageEvent({ ...m, message_type: m.message_type || (chat.kind === 'group' ? 'group' : 'private') }, self)
+            const p = parseMessageEvent({ ...m, message_type: m.message_type || (groupId ? 'group' : 'private') }, self)
             const who = String(m.user_id ?? m.sender?.user_id) === self ? '你' : (m.sender?.card || m.sender?.nickname || String(m.user_id ?? ''))
             const t = m.time ? new Date(m.time * 1000).toTimeString().slice(0, 5) : ''
             return `${t} ${who}：${(p.text || '（图片/表情）').slice(0, 150)}`
