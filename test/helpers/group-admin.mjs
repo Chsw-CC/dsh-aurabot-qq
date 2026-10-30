@@ -1,11 +1,13 @@
-// 内置模块：群管。主人开口时禁言、解禁、踢人、改头衔、发公告；她知道自己在每个群是什么身份。
+const __lib = globalThis.aurabot.lib // 插件内部源码（复制出来后靠它找到插件里的文件）
+// 社区模块（原内置）：群管。主人开口时禁言、解禁、踢人、改头衔、发公告；她知道自己在每个群是什么身份。
 
-import { defineTool, str, int } from '../../tools/tools.js'
+const { defineTool, str, int } = __lib('tools/tools.js')
 
 export default {
   id: 'group-admin',
   name: '群管',
   version: '1.0.0',
+  api: 1,
   description: '主人要求时禁言 / 解禁 / 踢人 / 改头衔 / 发公告（qq_group_admin）；告诉她自己在群里有没有管理权限',
   setup(api) {
     const { hub, onebot, groupRoles } = api.core
