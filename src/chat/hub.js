@@ -1573,9 +1573,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const admitted = await admit(agent, content)
     assertActive()
     startTyping(key, chat)
-    // 告诉同一会话里的其他插件是谁在说（#145）。群里一律算 guest：她的回复全群都看得到，不能按主人的私下对话算
+    // 告诉同一会话里的其他插件是谁在说（#145）：说话的全是主人才标 owner，混着别人或不知道是谁都是 guest
     const speakers = [senderId, ...(opts.extraSenders || [])].filter(Boolean).map(String)
-    const speakerRole = chat.kind === 'private' && speakers.length && speakers.every((u) => isOwner(getConfig(), u)) ? 'owner' : 'guest'
+    const speakerRole = speakers.length && speakers.every((u) => isOwner(getConfig(), u)) ? 'owner' : 'guest'
     const message = { id: randomUUID(), role: 'user', content: admitted, source: { kind: SOURCE_KIND, speaker: { role: speakerRole } } }
     // 正在跑的这一轮：steer = 下一步就看到这句（DSH 界面插话走的也是它）；空闲时照旧 followup 开新一轮
     if (opts.steer && typeof agent.steer === 'function') {
