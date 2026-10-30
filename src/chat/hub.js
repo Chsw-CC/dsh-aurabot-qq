@@ -1596,10 +1596,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const admitted = await admit(agent, content)
     assertActive()
     startTyping(key, chat)
-    // 告诉同一会话里的其他插件是谁在说（#145）：说话的全是主人才标 owner，混着别人或不知道是谁都是 guest
+    // 告诉同一会话里的其他插件是谁在说（#145）：说话的全是主人才标 owner，混着别人或不知道是谁都是 guest。
+    // chat 标私聊还是群聊：群里主人说话也是 owner，但回复全群都看得到，要不要放私事由插件自己判断
     const speakers = [senderId, ...(opts.extraSenders || [])].filter(Boolean).map(String)
     const speakerRole = speakers.length && speakers.every((u) => isOwner(getConfig(), u)) ? 'owner' : 'guest'
-    const message = { id: randomUUID(), role: 'user', content: admitted, source: { kind: SOURCE_KIND, speaker: { role: speakerRole } } }
+    const message = { id: randomUUID(), role: 'user', content: admitted, source: { kind: SOURCE_KIND, speaker: { role: speakerRole, chat: chat.kind } } }
     // 正在跑的这一轮：steer = 下一步就看到这句（DSH 界面插话走的也是它）；空闲时照旧 followup 开新一轮
     if (opts.steer && typeof agent.steer === 'function') {
       log.info(`${chat.chatId}：她还在忙，这句直接插进当前这一轮（steer）`)
@@ -1734,6 +1735,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return ownerPrivateChat(sessionId)
   }
 
+  /** 这一轮说话的人（QQ 号）。 */
+  function turnSenders(sessionId) {
+    return [...(turnState.get(sessionKey(sessionId))?.senders || [])]
+  }
+
   function turnSendersAllOwner(sessionId) {
     const st = turnState.get(sessionKey(sessionId))
     if (st && st.directOwner) return true // 主人在 DSH 面板里直接打字
@@ -1866,6 +1872,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     runSystemTurn,
     turnSendersAllOwner,
     turnHasOwner,
+    turnSenders,
     resetChat,
     joinTopic: (gid) => groupEngaged.set(String(gid), Date.now() + ENGAGE_MS),
     leaveTopic: (gid) => groupEngaged.delete(String(gid)),

@@ -403,8 +403,8 @@ export function normalize(raw) {
   g.minRelevance = num(g.minRelevance, 0.25, 0, 1)
   // @ 了别人时不算叫她（只挡必回，仍然可以插话）；默认关，保持原行为
   g.ignoreAtOthers = bool(g.ignoreAtOthers, false)
-  // 看白名单里别的群：off 关（默认）/ owner 主人开口时 / all 所有人
-  g.crossRead = ['owner', 'all'].includes(g.crossRead) ? g.crossRead : 'off'
+  // 看白名单里别的群：off 关 / private 主人和私聊里的群成员（默认）/ group 群里的成员也行
+  g.crossRead = ['off', 'group'].includes(g.crossRead) ? g.crossRead : 'private'
   c.merge.enabled = bool(c.merge.enabled, true)
   c.merge.waitSec = num(c.merge.waitSec, 2.5, 0, 30)
   c.merge.maxSec = Math.max(c.merge.waitSec, num(c.merge.maxSec, 8, 0, 60))

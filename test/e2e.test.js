@@ -1205,9 +1205,9 @@ test('来源章标明说话人：主人 owner，别人 guest，后台任务 none
     await until(() => fake.turns.length > n, 8000)
     return fake.turns.at(-1).source
   }
-  assert.deepEqual((await last(() => mock.push(priv(OWNER, text('来源章测试'))))).speaker, { role: 'owner' })
-  assert.deepEqual((await last(() => mock.push(grp('557', OWNER, [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: ' 来源章测试 主人在群里' } }], '主人')))).speaker, { role: 'owner' })
-  assert.deepEqual((await last(() => mock.push(grp('557', '999', [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: ' 来源章测试 群友' } }], '群友')))).speaker, { role: 'guest' })
+  assert.deepEqual((await last(() => mock.push(priv(OWNER, text('来源章测试'))))).speaker, { role: 'owner', chat: 'private' })
+  assert.deepEqual((await last(() => mock.push(grp('557', OWNER, [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: ' 来源章测试 主人在群里' } }], '主人')))).speaker, { role: 'owner', chat: 'group' })
+  assert.deepEqual((await last(() => mock.push(grp('557', '999', [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: ' 来源章测试 群友' } }], '群友')))).speaker, { role: 'guest', chat: 'group' })
   assert.deepEqual((await last(() => api.hub.runSystemTurn('source-test', '来源章', '后台任务', { timeoutMs: 5000 }).catch(() => {}))).speaker, { role: 'none' })
 })
 
