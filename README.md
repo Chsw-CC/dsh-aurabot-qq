@@ -30,13 +30,13 @@ QQ ⇄ SnowLuma（OneBot v11，你自己安装）⇄ Aurabot 插件 ⇄ DSH 会�
 Windows 桌面版：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:accomplish07zrh-eng/dsh-aurabot-qq
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq
 ```
 
 Linux / Docker：用 DSH 自己的命令行（把 `<profile>` 换成你在用的 profile；在容器里就进容器执行）：
 
 ```bash
-dsh plugin --profile <profile> add github:accomplish07zrh-eng/dsh-aurabot-qq
+dsh plugin --profile <profile> add github:Chsw-CC/dsh-aurabot-qq
 ```
 
 装好后重启 DSH，打开左侧栏「自动化任务」下的 **Aurabot**，跟着设置向导走：
@@ -54,6 +54,16 @@ dsh plugin --profile <profile> add github:accomplish07zrh-eng/dsh-aurabot-qq
 - **翻唱（RVC）**：目前只支持 Windows。
 - 容器里的 DSH 连宿主机或别的容器上的 OneBot 服务时，地址要用容器能访问到的主机名 / 端口（不是 `127.0.0.1`）。
 
+### 直接下载压缩包（手动装）
+
+不想用 git 依赖、或者网络拉 github 慢的，也可以下 Release 里的 zip：
+
+- 最新版：<https://github.com/Chsw-CC/dsh-aurabot-qq/releases/latest>
+- 全部版本：<https://github.com/Chsw-CC/dsh-aurabot-qq/releases>
+
+下下来是 `dsh-aurabot-qq-x.y.z.zip`，解压后把整个 `dsh-aurabot-qq-x.y.z` 目录放到 profile 的 `node_modules/` 下（Windows 是 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-aurabot-qq`），重启 DSH 即可。插件的数据（配置、人格、记忆、表情库）都在 `%USERPROFILE%\.dsh\plugins-data\aurabot\`，跟插件目录分开，覆盖安装不会丢。
+
+> 用命令行装（推荐，能跟着更新）：见上面「## 安装」。想钉死某个版本就写 `github:Chsw-CC/dsh-aurabot-qq#<tag>`。
 ## 升级
 
 再跑一遍安装命令（拉取最新版），然后重启 DSH。设置、人格、记忆都会保留（在 `%USERPROFILE%\.dsh\plugins-data\aurabot\`，升级不碰）；有新版本时面板里也会提示。
