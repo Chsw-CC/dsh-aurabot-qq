@@ -971,6 +971,9 @@ export function apply(ctx) {
   route('/modules/community', async (req) => {
     try { return { ok: true, ...(await community.list({ force: query(req).force === '1' })) } } catch (error) { return { ok: false, message: error.message, list: [] } }
   })
+  route('/modules/tutorial', async () => {
+    try { return { ok: true, text: readFileSync(join(ROOT, 'docs', 'MODULE-TUTORIAL.md'), 'utf8') } } catch (error) { return { ok: false, message: '教程文件不见了' } }
+  })
   route('/modules/community/install', async (req) => {
     const b = await readBody(req)
     return { ...(await community.install(String(b.id || ''), { confirmReplace: b.confirmReplace === true })), modules: mods.status() }

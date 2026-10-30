@@ -163,3 +163,9 @@ test('测试版：版本比较、更新通道、市场最低版本', async () =>
   assert.match(r.command, /github:a\/b#beta$/)
   assert.equal(u.channelOf('1.2.0'), 'main')
 })
+
+test('提交教程随插件发布', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.ok(pkg.files.includes('docs/MODULE-TUTORIAL.md'))
+  assert.match(readFileSync(new URL('../docs/MODULE-TUTORIAL.md', import.meta.url), 'utf8'), /提交一个模块/)
+})

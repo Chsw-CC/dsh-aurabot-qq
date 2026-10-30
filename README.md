@@ -15,6 +15,8 @@ QQ ⇄ SnowLuma（OneBot v11，你自己安装）⇄ Aurabot 插件 ⇄ DSH 会�
 
 桌宠、抖音、小黑盒、群管从 1.2.0 起搬到了社区库 [dsh-aurabot-qq-mods](https://github.com/accomplish07zrh-eng/dsh-aurabot-qq-mods)，要用的话在面板「模块市场」点安装。老用户升级时，正在用的会自动装回来，配置和登录状态都留着。下面这些功能的说明都需要先装好对应模块。
 
+想写模块并提交到市场：看[提交教程](docs/MODULE-TUTORIAL.md)，面板「模块市场」页最下面也有，能一键复制。
+
 社区模块和插件在同一进程运行，能接触账号配置；安装时显示的能力只是声明，不是沙箱。
 
 ## 刷小黑盒

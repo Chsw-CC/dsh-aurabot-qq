@@ -2616,6 +2616,25 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           : h('div', { className: 'ab-small ab-muted' }, '这个场合没有工具'))
     }
 
+    /** 写模块的教程：随插件带着，连不上 GitHub 也能看；复制后可以直接粘给 DSH。 */
+    const TUTORIAL_URL = 'https://github.com/accomplish07zrh-eng/dsh-aurabot-qq-mods/blob/main/docs/TUTORIAL.md'
+    function ModuleTutorial({ toast }) {
+      const [text, setText] = useState('')
+      const [err, setErr] = useState('')
+      const open = (e) => {
+        if (!e.target.open || text) return
+        get('/modules/tutorial').then((r) => (r.ok ? setText(r.text) : setErr(r.message)))
+      }
+      return h('details', { className: 'ab-card', onToggle: open },
+        h('summary', { style: { cursor: 'pointer', fontWeight: 620 } }, '想自己写一个？提交教程'),
+        h('p', { className: 'ab-desc', style: { marginTop: 8 } }, '从零写一个模块并提交到市场。不会写代码也行：复制全文粘给 DSH，告诉它你想要什么。'),
+        h('div', { className: 'ab-flex', style: { marginBottom: 10 } },
+          h(Btn, { small: true, kind: 'primary', disabled: !text, onClick: () => copy(text, toast, '教程复制好了') }, '一键复制'),
+          h('a', { className: 'ab-small', href: TUTORIAL_URL, target: '_blank', rel: 'noreferrer' }, '在 GitHub 上看')),
+        err ? h('div', { className: 'ab-note warn' }, err) : null,
+        text ? h('pre', { className: 'ab-small', style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 420, overflow: 'auto', margin: 0 } }, text) : (err ? null : h('div', { className: 'ab-small ab-muted' }, '加载中…')))
+    }
+
     /** 模块市场：逛、搜、装、更新、卸载社区模块。安装前给用户看来源和能力，能力声明不是沙箱。 */
     const CAP_LABEL = { network: '联网', filesystem: '读写本机文件', process: '启动其他程序', 'dynamic-code': '动态执行代码', 'plugin-config': '读写插件配置（含账号 Cookie）', 'plugin-internals': '使用插件内部接口' }
     const CATEGORY_LABEL = { platform: '逛平台', social: '聊天互动', creative: '创作', desktop: '桌面', manage: '管理', tool: '工具' }
@@ -2682,7 +2701,8 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         !data ? h(Empty, { icon: '⏳', text: '加载中…' }) : null,
         data && data.ok === false ? h('div', { className: 'ab-note warn' }, '市场打不开：' + data.message) : null,
         data && data.ok !== false && !shown.length ? h(Empty, { icon: '🐟', text: list.length ? '没有符合条件的模块' : '市场里还没有模块' }) : null,
-        shown.length ? h('div', { className: 'ab-grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' } }, shown.map(card)) : null)
+        shown.length ? h('div', { className: 'ab-grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' } }, shown.map(card)) : null,
+        h(ModuleTutorial, { toast }))
     }
 
     /** 扩展页：所有模块（内置的 + 市场装的 + 自己写的）、安全模式；写模块的工具收在最下面。 */
