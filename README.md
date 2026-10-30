@@ -30,13 +30,13 @@ QQ ⇄ SnowLuma（OneBot v11，你自己安装）⇄ Aurabot 插件 ⇄ DSH 会�
 Windows 桌面版：
 
 ```powershell
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:accomplish07zrh-eng/dsh-aurabot-qq
 ```
 
 Linux / Docker：用 DSH 自己的命令行（把 `<profile>` 换成你在用的 profile；在容器里就进容器执行）：
 
 ```bash
-dsh plugin --profile <profile> add github:Chsw-CC/dsh-aurabot-qq
+dsh plugin --profile <profile> add github:accomplish07zrh-eng/dsh-aurabot-qq
 ```
 
 装好后重启 DSH，打开左侧栏「自动化任务」下的 **Aurabot**，跟着设置向导走：
@@ -58,12 +58,12 @@ dsh plugin --profile <profile> add github:Chsw-CC/dsh-aurabot-qq
 
 不想用 git 依赖、或者网络拉 github 慢的，也可以下 Release 里的 zip：
 
-- 最新版：<https://github.com/Chsw-CC/dsh-aurabot-qq/releases/latest>
-- 全部版本：<https://github.com/Chsw-CC/dsh-aurabot-qq/releases>
+- 最新版：<https://github.com/accomplish07zrh-eng/dsh-aurabot-qq/releases/latest>
+- 全部版本：<https://github.com/accomplish07zrh-eng/dsh-aurabot-qq/releases>
 
 下下来是 `dsh-aurabot-qq-x.y.z.zip`，解压后把整个 `dsh-aurabot-qq-x.y.z` 目录放到 profile 的 `node_modules/` 下（Windows 是 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-aurabot-qq`），重启 DSH 即可。插件的数据（配置、人格、记忆、表情库）都在 `%USERPROFILE%\.dsh\plugins-data\aurabot\`，跟插件目录分开，覆盖安装不会丢。
 
-> 用命令行装（推荐，能跟着更新）：见上面「## 安装」。想钉死某个版本就写 `github:Chsw-CC/dsh-aurabot-qq#<tag>`。
+> 用命令行装（推荐，能跟着更新）：见上面「## 安装」。想钉死某个版本就写 `github:accomplish07zrh-eng/dsh-aurabot-qq#<tag>`。
 ## 升级
 
 **升级和安装不是同一条命令**：`add` 是「装上去并写进依赖表」，`update` 才是「照最新版本重装」。只跑 `add` 的话，pnpm 会沿用 lockfile 里锁定的那个 commit，不会跟到最新。
@@ -78,10 +78,10 @@ Windows 桌面版（升级用这条）：
 
 ```powershell
 # 重新指到分支头，并强制刷新锁文件
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq#heybox-work
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:accomplish07zrh-eng/dsh-aurabot-qq#heybox-work
 
 # 钉某个提交或 tag（不会被动更新，最稳）
-& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:Chsw-CC/dsh-aurabot-qq#v1.1.23
+& "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:accomplish07zrh-eng/dsh-aurabot-qq#v1.1.23
 ```
 
 Linux / Docker：
@@ -92,7 +92,7 @@ dsh plugin --profile <profile> update dsh-aurabot-qq
 
 升级完重启 DSH。设置、人格、记忆都在 `%USERPROFILE%\.dsh\plugins-data\aurabot\`，跟插件目录分开，升级不会丢；面板里也会提示有新版本。
 
-**本仓库（带小黑盒的 fork）**：`Chsw-CC/dsh-aurabot-qq`，默认分支 `heybox-work`。首次安装见上一节，用的是 `add`。
+**仓库**：`accomplish07zrh-eng/dsh-aurabot-qq`。首次安装见上一节，用的是 `add`。
 
 ### 跟上原作者的新版本
 
