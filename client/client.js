@@ -2618,12 +2618,14 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
 
     /** 模块市场：逛、搜、装、更新、卸载社区模块。安装前给用户看来源和能力，能力声明不是沙箱。 */
     const CAP_LABEL = { network: '联网', filesystem: '读写本机文件', process: '启动其他程序', 'dynamic-code': '动态执行代码', 'plugin-config': '读写插件配置（含账号 Cookie）', 'plugin-internals': '使用插件内部接口' }
+    const CATEGORY_LABEL = { platform: '逛平台', social: '聊天互动', creative: '创作', desktop: '桌面', manage: '管理', tool: '工具' }
     const capText = (m) => (m.capabilities || []).map((c) => CAP_LABEL[c] || c)
     function Market({ st, toast, reload, go }) {
       const [data, setData] = useState(null)
       const [busy, setBusy] = useState('')
       const [q, setQ] = useState('')
       const [show, setShow] = useState('all')
+      const [cat, setCat] = useState('')
       const load = (force) => get('/modules/community' + (force ? '?force=1' : '')).then(setData)
       useEffect(() => { load() }, [])
       const done = async (r) => {
@@ -2648,7 +2650,8 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
       const list = (data && data.list) || []
       const counts = { all: list.length, installed: list.filter((m) => m.installed).length, update: list.filter((m) => m.update).length }
       const word = q.trim().toLowerCase()
-      const shown = list.filter((m) => (show === 'all' || (show === 'installed' && m.installed) || (show === 'update' && m.update)) && (!word || (m.name + ' ' + m.id + ' ' + (m.description || '')).toLowerCase().includes(word)))
+      const cats = [...new Set(list.map((m) => m.category).filter(Boolean))]
+      const shown = list.filter((m) => (!cat || m.category === cat) && (show === 'all' || (show === 'installed' && m.installed) || (show === 'update' && m.update)) && (!word || (m.name + ' ' + m.id + ' ' + (m.description || '') + ' ' + (m.tags || []).join(' ')).toLowerCase().includes(word)))
       const openSettings = (m) => {
         const running = (st.modules || []).find((x) => x.id === m.id)
         return running && running.tab ? () => go(running.tab) : null
@@ -2659,7 +2662,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         const note = [m.delisted ? '已从市场下架' : '', m.foreign ? '有同名的自己写的文件夹，不会覆盖' : '', m.blocked].filter(Boolean).join(' · ')
         return h('div', { key: m.id, className: 'ab-card', style: { display: 'flex', flexDirection: 'column' } },
           h('h3', null, m.name, m.update ? h('span', { className: 'ab-badge' }, '可更新') : null),
-          h('div', { className: 'ab-small ab-muted' }, 'v' + (m.installed || m.version) + (m.update ? ' → v' + m.version : '') + (m.author ? ' · ' + m.author : '') + (m.license ? ' · ' + m.license : '')),
+          h('div', { className: 'ab-small ab-muted' }, 'v' + (m.installed || m.version) + (m.update ? ' → v' + m.version : '') + (CATEGORY_LABEL[m.category] ? ' · ' + CATEGORY_LABEL[m.category] : '') + (m.author ? ' · ' + m.author : '') + (m.license ? ' · ' + m.license : '')),
           h('p', { className: 'ab-desc', style: { margin: '8px 0' } }, m.description),
           capText(m).length ? h('div', { className: 'ab-small ab-muted', style: { marginBottom: 10 } }, '会用到：' + capText(m).join('、')) : null,
           note ? h('div', { className: 'ab-note warn', style: { marginBottom: 10 } }, note) : null,
@@ -2674,6 +2677,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           h('div', { className: 'ab-flex' },
             h('input', { className: 'ab-input', placeholder: '搜模块', value: q, onChange: (e) => setQ(e.target.value) }),
             chip('all', '全部'), chip('installed', '已安装'), chip('update', '可更新')),
+          cats.length > 1 ? h('div', { className: 'ab-flex', style: { marginTop: 10 } }, [''].concat(cats).map((c) => h('button', { key: c || 'any', type: 'button', className: cx('ab-chip', cat === c && 'on'), onClick: () => setCat(c) }, c ? CATEGORY_LABEL[c] || c : '全部分类'))) : null,
           ((data && data.revoked) || []).map((r) => h('div', { key: r.id, className: 'ab-note err', style: { marginTop: 10 } }, '「' + r.id + '」' + r.version + ' 已撤回：' + r.reason + '。建议关闭或卸载。'))),
         !data ? h(Empty, { icon: '⏳', text: '加载中…' }) : null,
         data && data.ok === false ? h('div', { className: 'ab-note warn' }, '市场打不开：' + data.message) : null,
