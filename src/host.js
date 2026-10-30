@@ -415,7 +415,8 @@ export function apply(ctx) {
   setTimeout(safe(watchdog, '看门狗'), 3000).unref?.()
   ctx.effect(() => () => {
     dangerGuard?.dispose()
-    hub.disposeRecentMedia()
+    hub.dispose()
+    bridge.dispose()
     mods.dispose()
     onebot.stop()
     snowluma.dispose()
