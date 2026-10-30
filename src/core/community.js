@@ -30,9 +30,10 @@ export const MOVED = {
   'group-admin': (cfg) => cfg.setupDone === true,
 }
 
+/** 只比 x.y.z：1.2.0-beta.1 算满足 minPluginVersion 1.2.0，模块不用跟着测试版改版本要求。 */
 export function compareVersions(a, b) {
-  const x = String(a).split('.').map(Number)
-  const y = String(b).split('.').map(Number)
+  const x = String(a).split('-')[0].split('.').map(Number)
+  const y = String(b).split('-')[0].split('.').map(Number)
   for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0) ? 1 : -1
   return 0
 }
