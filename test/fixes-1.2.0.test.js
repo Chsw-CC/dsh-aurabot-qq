@@ -251,3 +251,32 @@ test('桌宠行为回执只留 3 天，别的记忆不受影响（#138）', asyn
   assert.equal(shouldForget({ source: 'pet', at: now - 4 * day }, now), true)
   assert.equal(shouldForget({ source: 'self', at: now - 400 * day }, now), false)
 })
+
+test('心情基线可配，衰减往基线靠（#139）', async () => {
+  const { decayed } = await import('../src/features/companion.js')
+  assert.equal(Math.round(decayed(100, 0, 1, 100 * 3600_000, 40)), 40)
+  assert.equal(Math.round(decayed(100, 0, 1, 100 * 3600_000)), 60)
+})
+
+test('聊天流水保留和新开关的配置规范化（#140 #141 #142 #143）', async () => {
+  const { normalize } = await import('../src/core/config.js')
+  const d = normalize({})
+  assert.equal(d.memory.keepChatlogDays, 0)
+  assert.equal(d.memory.mergeGroups, false)
+  assert.equal(d.chat.seedHistory, false)
+  assert.equal(d.group.ignoreAtOthers, false)
+  assert.equal(normalize({ memory: { keepChatlogDays: -9 } }).memory.keepChatlogDays, -1)
+  assert.equal(normalize({ chat: { seedHistoryCount: 999 } }).chat.seedHistoryCount, 50)
+})
+
+test('@ 了别人时不算叫她，但只在开关打开时生效（#143）', async () => {
+  const { decideGroupReply } = await import('../src/chat/group-policy.js')
+  const { parseMessageEvent } = await import('../src/chat/inbound.js')
+  const m = parseMessageEvent({ message_type: 'group', group_id: 1, user_id: 2, message: [{ type: 'at', data: { qq: '3' } }, { type: 'text', data: { text: ' 问问大肥鱼' } }] }, '9')
+  assert.equal(m.atOthers, true)
+  const base = { policy: { wakeWords: ['大肥鱼'] }, text: m.text, relevance: 0, now: 0 }
+  const off = decideGroupReply(base)
+  const on = decideGroupReply({ ...base, atOthers: true })
+  assert.notEqual(on.reason, off.reason)
+  assert.match(String(off.reason), /叫到了/)
+})

@@ -721,7 +721,7 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
    */
   async function mergeGroups() {
     const cfg = getConfig()
-    if (cfg.memory?.mergeGroups === false) return { groups: 0, calls: 0, merged: 0 }
+    if (!cfg.memory?.mergeGroups) return { groups: 0, calls: 0, merged: 0 }
     const list = load().items.filter((m) => !m.invalidAt)
     const by = new Map()
     for (const m of list) {
@@ -753,7 +753,9 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
           const ids = (g.ids || []).map(String)
           const text = String(g.text || '').trim()
           if (ids.length < 2 || !text) continue
-          const members = s.items.filter((m) => ids.includes(String(m.id)) && !m.invalidAt)
+          // 模型给的编号只认这一组里低权重的：别把约定或别人的记忆并进来
+          const allowed = new Set(soft.map((x) => String(x.id)))
+          const members = s.items.filter((m) => ids.includes(String(m.id)) && allowed.has(String(m.id)) && !m.invalidAt)
           if (members.length < 2) continue
           const keep = members.reduce((a, b) => ((Number(a.importance) || 0) >= (Number(b.importance) || 0) ? a : b))
           keep.text = text
