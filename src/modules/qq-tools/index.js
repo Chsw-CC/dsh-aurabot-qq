@@ -41,10 +41,12 @@ export default {
         properties: {
           query: str('要搜的关键词，空格分隔表示每个词都要出现'),
           days: int('往回搜多少天，默认 30；0 表示全部'),
-          chat: str('只看某个聊天，填 private:QQ号 或 group:群号；不填就是全部'),
+          chat: str('主人私聊里才能用：只看某个聊天，填 private:QQ号 或 group:群号，不填就是全部；其他场合只搜当前聊天'),
         },
         required: ['query'],
-        execute: async ({ query, days, chat: only }) => {
+        execute: async ({ query, days, chat: wanted }) => {
+          // 跨聊天搜只给主人（full）：群友不能借她翻主人的私聊或别的群
+          const only = level === 'full' ? wanted : chat.chatId
           const words = String(query || '').trim().split(/\s+/).filter(Boolean)
           if (!words.length) return { ok: false, message: '关键词是空的' }
           const all = hub.chatLogDays?.() || []
