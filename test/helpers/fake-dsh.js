@@ -116,8 +116,9 @@ export function createFakeDsh({ brain }) {
     llm: {
       listProviders: () => ['fake'],
       async listModels() { return ['fake-1', 'm-pdef', 'm-gdef', 'm-owner', 'm-g777'].map((id) => ({ id, name: id })) },
-      async *stream() {
-        yield { type: 'text-delta', text: '可爱的小鲸鱼 #开心 #卖萌' }
+      async *stream({ system } = {}) {
+        const text = system?.includes('整理长期记忆') ? '[]' : '可爱的小鲸鱼 #开心 #卖萌'
+        yield { type: 'text-delta', text }
         yield { type: 'finish', reason: { kind: 'stop' } }
       },
     },

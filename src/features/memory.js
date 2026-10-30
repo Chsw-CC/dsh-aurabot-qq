@@ -173,9 +173,11 @@ export function parseReflection(out) {
 
 export function createMemoryStore({ dsh, getConfig, hub, log }) {
   const file = () => dataDir('memories.json')
-  const load = () => readJson(file(), () => ({ items: [] }))
+  let transaction = null // 一批记忆和流水进度一起落盘，避免中断后重复提炼
+  const load = () => transaction ? structuredClone(transaction) : readJson(file(), () => ({ items: [] }))
   const save = (s) => {
-    writeJson(file(), s)
+    if (transaction) transaction = s
+    else writeJson(file(), s)
     cache = null
   }
   let cache = null // { stamp, idx }
@@ -543,22 +545,17 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
   // 各个 DSH 会话自己的对话上下文不动；这里只处理插件记下的聊天流水。
 
   /** 从一段聊天里提炼长期记忆，并回顾相处经验。lines：[{who, text}] */
-  async function extractLines(chatId, lines) {
+  async function extractLines(chatId, lines, checkpoint) {
     const talk = lines.filter((l) => l.text && !String(l.text).startsWith('【系统'))
     const isQzone = chatId === 'qzone'
-    // 空间动态一条就可能有料；聊天至少要几句
-    if (talk.filter((l) => l.who !== 'bot').length < (isQzone ? 1 : 3)) return { ok: false, message: '内容太少', added: 0, insights: 0 }
+    if (!talk.length) { checkpoint(); return { ok: true, added: 0, insights: 0 } }
     // 带上 QQ 号，模型才能把事记到人头上（群聊、空间里说话的人很多）
     const line = (l) => (l.who === 'bot' ? '我' : l.uid ? `${l.who}(${l.uid})` : l.who) + '：' + l.text
     try {
-      // 太长就分段，每段最多 80 行
-      const chunks = []
-      for (let i = 0; i < talk.length; i += 80) chunks.push(talk.slice(i, i + 80))
-      let n = 0
-      for (const part of chunks.slice(-3)) n += await extractFacts(chatId, part.map(line).join('\n'))
+      const n = await extractFacts(chatId, talk.map(line).join('\n'), checkpoint)
       log.info(`从 ${chatId} 的${isQzone ? '空间动态' : '聊天'}里提炼了 ${n} 条新记忆`)
       if (isQzone) return { ok: true, added: n, insights: 0 }
-      // 顺便回顾一次相处经验（用全天的聊天，最多最近 120 行）
+      // 顺便回顾这一批的相处经验。
       let ins = 0
       try {
         const [kind, id] = chatId.split(':')
@@ -587,7 +584,7 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
     return out
   }
 
-  async function extractFacts(chatId, transcript) {
+  async function extractFacts(chatId, transcript, checkpoint) {
     const cfg = getConfig()
     const source = chatId === 'qzone' ? '下面是 QQ 空间里的动态（好友发的说说、别人给你的评论、你的回复）' : '下面是一段聊天'
     const related = relatedTo(chatId, transcript)
@@ -602,39 +599,50 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
       temperature: 0.2,
     })
     const m = out.match(/\[[\s\S]*\]/)
-    const arr = m ? JSON.parse(m[0]) : []
+    if (!m) throw new Error('提炼记忆时模型没有返回 JSON 数组')
+    const arr = JSON.parse(m[0])
+    if (!Array.isArray(arr)) throw new Error('提炼记忆时模型没有返回 JSON 数组')
     let n = 0
-    for (const x of arr.slice(0, 12)) {
-      if (!x || !x.text) continue
-      if (/^(我|大肥鱼)/.test(String(x.about || '')) || String(x.about || '') === '大肥鱼') continue
-      // 关于谁：模型给了 QQ 号就用（群聊、空间里也能记到人头上），私聊默认是对方
-      const qq = String(x.about_qq ?? '').replace(/\D/g, '')
-      const about = qq.length >= 5 && qq !== String(cfg.botQQ) ? qq : chatId.startsWith('private:') ? chatId.slice(8) : ''
-      const op = String(x.op || 'add')
-      const target = known.get(String(x.id || '').replace(/^#/, ''))
-      // 补充旧的（你在面板里亲手写的不改写）
-      if (op === 'update' && target && target.source !== 'panel') {
-        if (revise(target.id, x.text, x.importance)) n++
-        continue
-      }
-      // 旧的过时了：先标过时（这样新的不会被当成重复合并进去），再记新的
-      if (op === 'outdated' && target) {
-        invalidate(target.id)
-        const r = add({ text: x.text, aboutName: x.about || target.aboutName || '', about: about || target.about || '', importance: x.importance ?? target.importance ?? 0.5, source: 'auto', chatId })
-        if (r.id || r.updated) {
-          invalidate(target.id, r.id || r.updated)
-          log.info(`记忆更新：「${target.text}」过时了 → 「${String(x.text).slice(0, 60)}」`)
-          n++
+    // 模型返回后才开始事务；期间没有异步操作，记忆和本批进度只写一次。
+    transaction = load()
+    try {
+      for (const x of arr.slice(0, 12)) {
+        if (!x || !x.text) continue
+        if (/^(我|大肥鱼)/.test(String(x.about || '')) || String(x.about || '') === '大肥鱼') continue
+        // 关于谁：模型给了 QQ 号就用（群聊、空间里也能记到人头上），私聊默认是对方
+        const qq = String(x.about_qq ?? '').replace(/\D/g, '')
+        const about = qq.length >= 5 && qq !== String(cfg.botQQ) ? qq : chatId.startsWith('private:') ? chatId.slice(8) : ''
+        const op = String(x.op || 'add')
+        const target = known.get(String(x.id || '').replace(/^#/, ''))
+        // 补充旧的（你在面板里亲手写的不改写）
+        if (op === 'update' && target && target.source !== 'panel') {
+          if (revise(target.id, x.text, x.importance)) n++
+          continue
         }
-        continue
+        // 旧的过时了：先标过时（这样新的不会被当成重复合并进去），再记新的
+        if (op === 'outdated' && target) {
+          invalidate(target.id)
+          const r = add({ text: x.text, aboutName: x.about || target.aboutName || '', about: about || target.about || '', importance: x.importance ?? target.importance ?? 0.5, source: 'auto', chatId })
+          if (r.id || r.updated) {
+            invalidate(target.id, r.id || r.updated)
+            log.info(`记忆更新：「${target.text}」过时了 → 「${String(x.text).slice(0, 60)}」`)
+            n++
+          }
+          continue
+        }
+        const r = add({ text: x.text, aboutName: x.about || '', about, importance: x.importance ?? 0.5, source: 'auto', chatId })
+        if (r.ok && r.id) n++
       }
-      const r = add({ text: x.text, aboutName: x.about || '', about, importance: x.importance ?? 0.5, source: 'auto', chatId })
-      if (r.ok && r.id) n++
-    }
+      checkpoint()
+      writeJson(file(), transaction)
+    } finally { transaction = null; cache = null }
     return n
   }
 
   const dayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const EXTRACT_LINES = 80 // 每次给模型最多多少行
+  const EXTRACT_WINDOW = 240 // 每段流水按聊天分组；完成后才推进整段的行号
+  const EXTRACT_LIMIT = 12 // 每次整理最多提炼多少批，剩下的留到下次
   let busy = false
 
   /**
@@ -650,40 +658,66 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
     let insights = 0
     let days = 0
     let profiles = 0
+    let batches = 0
     try {
       for (const day of hub.chatLogDays()) {
         if (day > today || (day === today && !o.includeToday)) continue
-        // 同一天整理过一部分的（比如下午那次），只处理之后新增的聊天
-        const done = (load().processed || {})[day] || 0
         const all = hub.chatLogOf(day)
-        const byChat = new Map()
-        for (const l of all.slice(done)) {
-          if (String(l.chatId).startsWith('system:')) continue
-          if (!byChat.has(l.chatId)) byChat.set(l.chatId, [])
-          byChat.get(l.chatId).push(l)
-        }
-        for (const [chatId, lines] of byChat) {
-          const r = await extractLines(chatId, lines)
-          added += r.added || 0
-          insights += r.insights ? 1 : 0
+        const saved = (load().processed || {})[day]
+        // 旧版只记全天行数，无法知道其中哪些内容被跳过；保守地从头补提炼。
+        let done = saved && typeof saved === 'object' ? saved.offset : 0
+        let progress = saved && typeof saved === 'object' ? saved : 0
+        if (saved != null && typeof saved !== 'object') log.info(`${day}：旧版整理进度无法区分漏掉的内容，从头补提炼`)
+        while (done < all.length) {
+          // 记录每个聊天已完成的批次，失败后不重复提炼。
+          if (typeof progress === 'number' || progress.end <= progress.offset) progress = { offset: done, end: Math.min(all.length, done + EXTRACT_WINDOW), chats: {} }
+          const byChat = new Map()
+          for (const l of all.slice(progress.offset, progress.end)) {
+            if (String(l.chatId).startsWith('system:')) continue
+            if (!byChat.has(l.chatId)) byChat.set(l.chatId, [])
+            byChat.get(l.chatId).push(l)
+          }
+          let stopped = false
+          for (const [chatId, lines] of byChat) {
+            let n = progress.chats[chatId] || 0
+            while (n < lines.length) {
+              if (batches >= EXTRACT_LIMIT) { stopped = true; break }
+              const part = lines.slice(n, n + EXTRACT_LINES)
+              const r = await extractLines(chatId, part, () => {
+                const s = load()
+                s.processed = s.processed || {}
+                s.processed[day] = { ...progress, chats: { ...progress.chats, [chatId]: n + part.length } }
+                save(s)
+              })
+              if (!r.ok) throw new Error(r.message || '提炼记忆失败')
+              added += r.added || 0
+              insights += r.insights ? 1 : 0
+              batches++
+              n += part.length
+              progress.chats[chatId] = n
+            }
+            if (stopped) break
+          }
+          if (stopped) break
+          done = progress.end
+          progress = done
+          const s = load()
+          s.processed = s.processed || {}
+          s.processed[day] = { offset: done, end: done, chats: {} }
+          save(s)
         }
         const s = load()
         s.processed = s.processed || {}
-        // keepChatlogDays：0 = 上游现状（整理完就删）、-1 = 永久保留、N = 留 N 天
+        // 只在整天都处理完且没有新流水时清理；今天留着给日记用。
         const keepDays = Number(getConfig().memory.keepChatlogDays)
-        if (day < today) {
-          const expire = keepDays >= 0 && day < dayKey(new Date(Date.now() - keepDays * 86400_000))
-          if (keepDays === 0 || expire) {
-            hub.deleteChatLog(day) // 整理完清空（今天的留着，写日记还要用）
-            delete s.processed[day]
-          } else {
-            s.processed[day] = all.length
-          }
-        } else {
-          s.processed[day] = all.length
+        const expire = keepDays >= 0 && day < dayKey(new Date(Date.now() - keepDays * 86400_000))
+        if (day < today && done === all.length && hub.chatLogOf(day).length === all.length && (keepDays === 0 || expire)) {
+          hub.deleteChatLog(day)
+          delete s.processed[day]
+          save(s)
         }
-        save(s)
         days++
+        if (batches >= EXTRACT_LIMIT) break
       }
       if (days) await learnSelfStyle()
       // 这次记忆有变化的人，重写人物小档案（每次最多 8 个人）

@@ -124,3 +124,32 @@ test('超时不重试（可能已经发出去了，重试会重复）', async ()
     assert.equal(h.calls.length, 1, '超时只调一次')
   } finally { h.restore() }
 })
+
+test('读取 HTTP 回执时超时仍然报告超时，不按业务失败处理', async () => {
+  const h = client(async () => ({ status: 200, json: async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }) } }))
+  try {
+    await assert.rejects(() => h.c.call('send_private_msg', {}), (err) => {
+      assert.equal(err.uncertain, true)
+      assert.match(err.message, /超时/)
+      return true
+    })
+    assert.equal(h.calls.length, 1)
+  } finally { h.restore() }
+})
+
+test('连接建立后断开或回执无法解析：结果不确定，不自动重试', async () => {
+  for (const fetchImpl of [
+    async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } }) },
+    async () => new Response('不是 JSON', { status: 200 }),
+  ]) {
+    const h = client(fetchImpl)
+    try {
+      await assert.rejects(() => h.c.call('send_private_msg', {}), (err) => {
+        assert.equal(err.uncertain, true)
+        assert.equal(err.transport, false)
+        return true
+      })
+      assert.equal(h.calls.length, 1)
+    } finally { h.restore() }
+  }
+})
