@@ -265,14 +265,18 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   async function createSession(chat, level) {
     const ws = await ensureWorkspace()
+    assertActive()
     const preset = presetFor(level, getConfig())
     const r = await controller().create({ workspaceId: ws.id, agentPreset: preset })
+    assertActive()
     const sid = String(r.sessionId)
     try {
       await controller().rename({ sessionId: sid, title: titleFor(chat) })
     } catch (error) {
       log.debug('改会话标题失败：', error.message)
     }
+    // 旧实例在创建或改名期间卸载时，不能覆盖新实例的会话映射。
+    assertActive()
     const m = map()
     m.chats[chat.chatId] = { sessionId: sid, preset, level, createdAt: Date.now(), title: titleFor(chat) }
     saveMap(m)
@@ -301,9 +305,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       try {
         agent = await resolveAgent(sid)
       } catch (error) {
+        assertActive()
         log.warn(`会话 ${sid.slice(-8)} 恢复不了（${error.message}），换一个新的`)
         sid = ''
       }
+      assertActive()
       const reg = dsh.workspaceRegistry || dsh.get('workspaceRegistry')
       if (sid && reg && (reg.archivedSessionIds || []).includes(sid)) {
         log.info(`会话 ${sid.slice(-8)} 被归档了，换一个新的`)
@@ -313,10 +319,13 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
     if (!sid) {
       sid = await createSession(chat, level)
+      assertActive()
       agent = await resolveAgent(sid)
     }
+    assertActive()
     // 模型 / 思考强度和设置不一致就切过去（面板改了模型，下一条消息起生效）
     const target = await resolveTarget(chat)
+    assertActive()
     const want = keyOf(target)
     const m = map()
     if (want && m.chats[chat.chatId] && m.chats[chat.chatId].model !== want) {
@@ -596,6 +605,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   /** 把一个音频文件当语音条发出去（翻唱用）。 */
   async function sendVoiceFile(chatId, file, note) {
+    if (disposed) return null
     const b64 = readFileSync(file).toString('base64')
     const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], note || '[语音]')
     if (r || getConfig().dryRun || !getConfig().enabled) bump('voice')
@@ -626,6 +636,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
 
   /** 把一个文件当文件发到 QQ（OneBot upload_private_file / upload_group_file）。file 可以是本机绝对路径、网址或 base64://。 */
   async function sendFile(chatId, file, name) {
+    if (disposed) return null
     const cfg = getConfig()
     const tgt = targetOf(chatId)
     if (!tgt) return null
@@ -661,10 +672,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const srcLabel = external ? (src.startsWith('base64://') ? 'base64' : '外部地址') : size < 1024 ? size + ' B' : Math.round(size / 1024) + ' KB'
     try {
       const r = await onebot.call(action, params, { timeoutMs: FILE_TIMEOUT_MS })
+      if (disposed) return null
       bump('sent')
       log.info(`${chatId}：发文件「${label}」（${srcLabel}）`)
       return r
     } catch (error) {
+      if (disposed) return null
       // 只有明确失败时才回落：超时或断线可能已经发出，再发会重复。
       const canRetryBase64 = isDefiniteFailure(error) && !external && size <= Math.min(FILE_BASE64_MAX, maxBytes)
       if (!canRetryBase64) {
@@ -675,10 +688,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       try {
         const b64 = 'base64://' + readFileSync(src).toString('base64')
         const r = await onebot.call(action, { ...params, file: b64 }, { timeoutMs: FILE_TIMEOUT_MS })
+        if (disposed) return null
         bump('sent')
         log.info(`${chatId}：发文件「${label}」（网关看不到本机路径，改走 base64）`)
         return r
       } catch (error2) {
+        if (disposed) return null
         bump('errors')
         log.warn(`${chatId}：发文件「${label}」失败：`, error2.message || error.message)
         throw new Error(`发文件失败：${error2.message || error.message}`)
@@ -706,6 +721,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   }
 
   async function sendImage(chatId, src, replyId, userId) {
+    if (disposed) return null
     try {
       const buf = await fetchImage(src, { maxBytes: 10 * 1024 * 1024 })
       return sendSegments(chatId, [...quote(replyId), ...mention(userId), { type: 'image', data: { file: 'base64://' + buf.toString('base64') } }], `[图片] ${src.slice(-40)}`)
@@ -1071,12 +1087,14 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   }
 
   async function onMessage(event) {
+    if (disposed) return
     selfId = String(event.self_id || selfId || getConfig().botQQ)
     const cfg = getConfig()
     const msg = parseMessageEvent(event, selfId, { faceName: faces.nameOf })
     if (msg.userId === selfId) return
     // 按群头衔过滤：这条当没看见（不进群聊上下文、不触发回复，@ 她、主人命令也一样）
     if (msg.kind === 'group' && await titleFilter.shouldIgnore(event)) return
+    if (disposed) return
     bump('received')
     const now = Date.now()
 
@@ -1122,12 +1140,14 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     if (onCommand && isOwner(cfg, msg.userId) && /^\s*[/／]/.test(msg.text)) {
       try {
         const reply = await onCommand(msg)
+        if (disposed) return
         if (reply) {
           log.info(`主人命令 ${msg.text.trim().slice(0, 30)} → ${reply.split('\n')[0]}`)
           await sendSegments(msg.chatId, [{ type: 'text', data: { text: reply } }], reply.slice(0, 60), { force: true })
           return
         }
       } catch (error) {
+        if (disposed) return
         log.warn('执行命令出错：', error.message)
         await sendSegments(msg.chatId, [{ type: 'text', data: { text: '命令没执行成功：' + error.message } }], '命令出错', { force: true })
         return
@@ -1148,6 +1168,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     if (hooks?.message) {
       try {
         if (await hooks.message({ ...msg, raw: event })) {
+          if (disposed) return
           logChat(msg.chatId, msg.nickname, msg.text, msg.userId)
           return
         }
@@ -1155,6 +1176,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
         log.warn('扩展模块处理消息出错：', error.message)
       }
     }
+    if (disposed) return
 
     let mode = 'must'
     if (msg.kind === 'group') {
@@ -1166,6 +1188,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       let memScore = 0
       try { memScore = typeof memoryScore === 'function' ? memoryScore(recentTexts.join(' ')) : 0 } catch (error) {}
       const quotedBot = await repliedToBot(msg.replyId, msg)
+      if (disposed) return
       const decision = decideGroupReply({
         policy: pol,
         relevance: topicRelevance(recentTexts, pol.interests, memScore),
@@ -1189,6 +1212,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
           log.warn('扩展模块改群聊决定出错：', error.message)
         }
       }
+      if (disposed) return
       if (!decision.reply) {
         log.debug(`群 ${msg.groupId}：不回（${decision.reason}）`)
         logChat(msg.chatId, msg.nickname, msg.text, msg.userId)
@@ -1205,12 +1229,14 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     let text = msg.text
     if (msg.forwards?.length) {
       text = await expandForwards(msg, text)
+      if (disposed) return
       if (msg.kind === 'group') {
         const last = (groupBuf.get(msg.groupId) || []).findLast?.((x) => x.uid === msg.userId)
         if (last) last.text = text
       }
     }
     const voiceText = cfg.voice.asr && msg.records.length ? await transcribe(msg) : msg.records.length ? '[发来一条语音]' : ''
+    if (disposed) return
     if (voiceText) text = (text ? text + ' ' : '') + voiceText
     if (voiceText && msg.kind === 'group') {
       // 群消息的文字在 groupBuf 里，语音转出来的字补进去，拼提示词时才看得到
@@ -1219,9 +1245,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
     // 引用消息：私聊现在就把被引用的内容取出来拼进正文；群聊留给 groupPrompt 懒加载（没交给她就白取）
     const quoted = msg.kind === 'private' && msg.replyId ? await quotedInfo(msg.replyId, msg) : null
+    if (disposed) return
     // 群聊：不在这里拼文案。等这段消息攒齐了（或她回完上一段），flush 时把群里新来的话一次性交给她
     const content = msg.kind === 'group' ? [] : [{ type: 'text', text: `【私聊】${msg.nickname}(${msg.userId})：` + (text || '（没有文字）') + (quoted ? '\n' + quoteInline(quoted) : '') }]
     const imgs = await imagesOf(msg)
+    if (disposed) return
     if (imgs.length) {
       // 模型明确不支持看图：硬塞图片块会让整轮请求被拒（她就一个字都回不了），改成一行文字提示
       if ((await canSeeImages(dsh, cfg)) === false) {
@@ -1236,6 +1264,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const qImgs = await quoteImages(quoted, Math.min(2, 4 - imgs.length))
       for (const c of qImgs) content.push(c)
     }
+    if (disposed) return
     logChat(msg.chatId, msg.nickname, text, msg.userId)
     lastChatAt = now
     if (msg.kind === 'private' && msg.userId === cfg.ownerQQ) lastOwnerChatAt = now
@@ -1271,15 +1300,18 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const pokeAt = new Map() // chatId → 上次处理戳一戳的时间
   /** 有人戳了她：当成一条对她说的话交给她（群里也一定回），同一个聊天 20 秒内只算一次。 */
   async function onPoke(ev) {
+    if (disposed) return
     const self = String(ev.self_id || selfId || getConfig().botQQ)
     if (String(ev.target_id) !== self) return
     if (hooks?.poke) {
       try { if (await hooks.poke(ev)) return } catch (error) {}
     }
+    if (disposed) return
     const group = ev.group_id ? String(ev.group_id) : ''
     const poker = String(group ? ev.user_id : ev.sender_id ?? ev.user_id)
     if (!poker || poker === self) return
     if (group && await titleFilter.shouldIgnore({ group_id: group, user_id: poker })) return
+    if (disposed) return
     const chatId = group ? `group:${group}` : `private:${poker}`
     lastPoker.set(chatId, poker)
     if (Date.now() - (pokeAt.get(chatId) || 0) < 20_000) return
@@ -1289,6 +1321,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const info = group ? await onebot.call('get_group_member_info', { group_id: Number(group), user_id: Number(poker) }, { timeoutMs: 5000 }) : await onebot.call('get_stranger_info', { user_id: Number(poker) }, { timeoutMs: 5000 })
       nickname = info?.card || info?.nickname || poker
     } catch (error) {}
+    if (disposed) return
     log.info(`${chatId}：${nickname} 戳了戳她`)
     await onMessage({
       post_type: 'message', message_type: group ? 'group' : 'private', sub_type: group ? 'normal' : 'friend',

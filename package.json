@@ -36,7 +36,6 @@
     "onebot"
   ],
   "files": [
-    "extensions",
     "src",
     "client",
     "personas",
