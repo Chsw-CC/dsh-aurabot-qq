@@ -1198,6 +1198,18 @@ test('慢工具卡住超过 1.5 秒先发一条「正在做」提示，不让主
   rmSync(modsDir, { recursive: true, force: true })
 })
 
+test('来源章标明说话人：主人私聊 owner，别人和群里 guest，后台任务 none（#145）', async () => {
+  const last = async (push) => {
+    const n = fake.turns.length
+    push()
+    await until(() => fake.turns.length > n, 8000)
+    return fake.turns.at(-1).source
+  }
+  assert.deepEqual((await last(() => mock.push(priv(OWNER, text('来源章测试'))))).speaker, { role: 'owner' })
+  assert.deepEqual((await last(() => mock.push(grp('557', OWNER, [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: ' 来源章测试 主人在群里' } }], '主人')))).speaker, { role: 'guest' })
+  assert.deepEqual((await last(() => api.hub.runSystemTurn('source-test', '来源章', '后台任务', { timeoutMs: 5000 }).catch(() => {}))).speaker, { role: 'none' })
+})
+
 test('DSH 要授权时通知主人私聊，同一请求只发一次（#136）', async () => {
   const before = mock.calls.length
   const ask = { type: 'approval/asked', data: { id: 'approval-1', toolName: 'pwsh', reason: '要跑命令' } }

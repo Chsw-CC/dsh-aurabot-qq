@@ -65,7 +65,7 @@ export function createFakeDsh({ brain }) {
             return result
           }
           const reply = await brain({ preset, text, images, ctxText, persona, callTool, toolNames: [...tools.keys()] })
-          turns.push({ sessionId, preset, userText: text, images: images.length, reply, toolCalls: calls, ctxText })
+          turns.push({ source: msg.source, sessionId, preset, userText: text, images: images.length, reply, toolCalls: calls, ctxText })
           emit('session/event', session, { type: 'assistant/message', data: { turn: myTurn, message: { content: [{ type: 'text', text: reply }] } } })
           emit('session/event', session, { type: 'turn/end', data: { turn: myTurn, reason: { kind: 'completed' } } })
         })
