@@ -3068,6 +3068,13 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         toast(r.message || '好了', r.ok === false ? 'err' : 'ok')
         load()
       }
+      const verifyStep = async (path, body, name) => {
+        setBusy(name)
+        const r = await post(path, body)
+        setBusy('')
+        toast(r.message || (r.ok ? '好了' : '没成功'), r.ok === false ? 'err' : 'ok')
+        load()
+      }
       const riskCard = () => h(Card, {
         title: '访问限流 / 安全验证',
         desc: '小黑盒对同一账号的读接口有频率限制：搜索最容易弹验证码，帖子详情次之。被挡下来之后她不会硬试重试（重试只会让冷却更长），而是按阶梯等（5 分钟 → 20 分钟 → 1 小时 → 3 小时 → 8 小时）。想马上继续用就扫码：不用开浏览器，手机上扫一下就能换一个干净会话。',
@@ -3087,6 +3094,11 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
               qrc && qrc.ok ? h(Btn, { small: true, onClick: qrPoll, disabled: !!qrBusy }, qrBusy === 'poll' ? '查…' : '我扫完了，查结果') : null),
             qrc && qrc.png ? h('div', { style: { marginTop: 8 } }, h('img', { src: qrc.png, style: { width: 200, height: 200, imageRendering: 'pixelated', border: '1px solid var(--ab-line)', borderRadius: 6 } })) : null,
             qrc && qrc.ok ? h('div', { className: 'ab-small ab-muted', style: { marginTop: 4 } }, qrc.message || '') : null)),
+        h(Row, { label: '浏览器手动验证', hint: '扫码不行时用：浏览器在后台打开，显示窗口后你自己点完验证，再按「验证完成」' },
+          h('div', { className: 'ab-flex' },
+            h(Btn, { small: true, disabled: !!busy, onClick: () => verifyStep('/heybox/verify/start', {}, 'verify') }, busy === 'verify' ? '打开中…' : '打开浏览器'),
+            h(Btn, { small: true, disabled: !!busy, onClick: () => verifyStep('/heybox/verify/show', { visible: true }, 'verify-show') }, '显示窗口'),
+            h(Btn, { small: true, kind: 'primary', disabled: !!busy, onClick: () => verifyStep('/heybox/verify/finish', {}, 'verify-end') }, busy === 'verify-end' ? '检查中…' : '验证完成'))),
       )
       const acct = s && s.account
       const acctText = !acct || !acct.checkedAt ? h('span', { className: 'ab-small ab-muted' }, '还没检查过') :

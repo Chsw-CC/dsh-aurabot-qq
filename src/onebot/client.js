@@ -8,14 +8,24 @@ const RETRY_DELAYS = [1000, 3000, 5000]
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 export class OneBotError extends Error {
-  constructor(action, data, { transport = false } = {}) {
+  constructor(action, data, { transport = false, uncertain = false } = {}) {
     super(`${action} 失败：${data?.message || data?.wording || data?.retcode || '未知错误'}`)
     this.action = action
     this.data = data
     // transport = 根本没连上网关（可以重试）；业务错误（retcode 不为 0、超时但也可能已经发出去）不重试
     this.transport = transport
+    this.uncertain = uncertain
   }
 }
+
+/** 只有确定没连上或网关明确拒绝时，才能换一种方式发送。 */
+export function isDefiniteFailure(error) {
+  if (!(error instanceof OneBotError) || error.uncertain || /超时|timeout|timed?\s*out/i.test(String(error.data?.message || error.message))) return false
+  return error.transport || error.data?.status === 'failed' || (error.data?.retcode != null && Number(error.data.retcode) !== 0)
+}
+
+// fetch 失败不一定是没连上：连接建立后断开时，网关可能已经收到了请求。
+const notConnected = (error) => ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH'].includes(error?.cause?.code)
 
 /**
  * @param {object} o
@@ -51,13 +61,18 @@ export function createOneBotClient({ endpoint, onEvent, onState, log, retryDelay
         const r = await fetch(`${ep.httpUrl.replace(/\/+$/, '')}/${action}`, {
           method: 'POST', headers, body: JSON.stringify(params), signal: ctrl.signal,
         })
-        const j = await r.json().catch(() => ({ status: 'failed', retcode: r.status, message: `HTTP ${r.status}` }))
+        let j
+        try { j = await r.json() } catch (error) {
+          if (error.name === 'AbortError') throw error
+          throw new OneBotError(action, { message: `网关响应无法解析（HTTP ${r.status}）` }, { uncertain: true })
+        }
         if (j.status === 'ok' || j.retcode === 0) return j.data
         throw new OneBotError(action, j)
       } catch (error) {
         if (error instanceof OneBotError) throw error
         // 超时可能是"已经发出去了只是没等到回执"，重试会重复发消息 —— 不重试
-        if (error.name === 'AbortError') throw new OneBotError(action, { message: '超时' })
+        if (error.name === 'AbortError') throw new OneBotError(action, { message: '超时' }, { uncertain: true })
+        if (!notConnected(error)) throw new OneBotError(action, { message: describeNetError(error, ep) }, { uncertain: true })
         if (ws && ws.readyState === 1) {
           try { return await callWs(action, params, timeoutMs) } catch (wsError) { throw wsError }
         }
@@ -104,7 +119,7 @@ export function createOneBotClient({ endpoint, onEvent, onState, log, retryDelay
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => {
         pending.delete(echo)
-        reject(new OneBotError(action, { message: '超时' }))
+        reject(new OneBotError(action, { message: '超时' }, { uncertain: true }))
       }, timeoutMs)
       pending.set(echo, { resolve, reject, t, action })
       ws.send(JSON.stringify({ action, params, echo }))
@@ -155,7 +170,7 @@ export function createOneBotClient({ endpoint, onEvent, onState, log, retryDelay
       if (ws === sock) ws = null
       for (const [k, p] of pending) {
         clearTimeout(p.t)
-        p.reject(new OneBotError(p.action, { message: '连接断开' }))
+        p.reject(new OneBotError(p.action, { message: '连接断开' }, { uncertain: true }))
         pending.delete(k)
       }
       if (!stopped) {

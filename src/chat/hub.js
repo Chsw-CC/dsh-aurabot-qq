@@ -23,6 +23,7 @@ import { createFaces, textToSegments, stripFaceTags, speakableText } from './fac
 import { expandMentions, hasMention } from './mentions.js'
 import { createRecentMedia } from './recent-media.js'
 import { createTitleFilter } from './title-filter.js'
+import { isDefiniteFailure } from '../onebot/client.js'
 
 // QQ 会话的工作区目录，第一次收到消息时自动创建。面板「连接」页能改（config.workspaceDir，#32）；
 // 没填就用环境变量 AURABOT_WORKSPACE，再没有：老安装沿用 C:\Aurabot\qq-chats，新安装放在用户目录下（不用往 C 盘根目录写）
@@ -65,7 +66,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const mounts = new Set() // 可遍历的挂载记录：插件卸载时要撤掉仍存活会话里的注册
   const toolDisposers = new Map() // `${sessionKey}|${工具名}` → disposer，防注册表里残留同名工具时挂不上（#90）
   const sessionToChat = new Map() // sessionKey → chatId
-  const turnState = new Map() // sessionKey → { lastTurn, text, images, senders:Set, system?: {resolve, reject} }
+  const turnState = new Map() // sessionKey → { lastTurn, text, images, senders:Set, system?: {resolve, reject, timedOutAt} }
+  const systemTurns = new Map() // chatId → 当前后台轮次，权限档位变化时也不能绕过它
+  const systemStarting = new Set() // 建会话和恢复期间，同一个聊天只能有一个调用
+  const systemFailures = new Map() // chatId → { count, until }
+  const SYSTEM_STUCK_GRACE_MS = 5 * 60_000
+  const SYSTEM_BACKOFF = [2, 5, 15, 30, 60, 120].map((minutes) => minutes * 60_000)
   const groupBuf = new Map() // groupId → [{t, uid, nick, text, at, replyId, quote}]
   const quoteCache = new Map() // replyId → { ok, who, uid, text, images, stickers, records, isBot }  引用消息解析缓存
   const groupInterjects = new Map() // groupId → [t]  她主动开口（插话、接话）的时间
@@ -475,7 +481,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return kind === 'group' ? { kind: 'group', id } : kind === 'private' ? { kind: 'private', id } : null
   }
 
-  async function sendSegments(chatId, message, note, { force = false, isCurrent = null } = {}) {
+  async function sendSegments(chatId, message, note, { force = false, isCurrent = null, throwOnError = false } = {}) {
     if (disposed) return null
     const cfg = getConfig()
     const tgt = targetOf(chatId)
@@ -518,6 +524,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     } catch (error) {
       bump('errors')
       log.warn(`发到 ${chatId} 失败：`, error.message)
+      if (throwOnError) throw error
       failStore.getStore()?.push(error.message)
       return null
     }
@@ -538,22 +545,36 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   }
 
   async function sendVoice(chatId, text, replyId, userId) {
+    let b64, engine
     try {
       // 表情标签 / emoji 不念出来：TTS 只念能说的字（用户反馈：发语音时「呲牙」被读出来）
       const spoken = speakableText(text)
       if (!spoken) throw new Error('这条语音里只有表情/符号，没有能念的字')
-      const { file, engine } = await tts.speak(spoken)
-      const b64 = readFileSync(file).toString('base64')
-      // QQ 客户端不支持「引用 / @ + 语音」同一条消息：这样发电脑 QQ 是空白气泡、手机 QQ 提示
-      // 「该消息类型暂不支持查看」，语音也听不到（issue #103）。语音条一律单独成条，引用和 @ 只能放弃。
-      if (replyId || userId) log.debug(`语音条不能带引用/@（QQ 限制），单独发：${chatId}`)
-      const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`)
-      if (r || getConfig().dryRun || !getConfig().enabled) bump('voice')
-      if (!r && getConfig().enabled && !getConfig().dryRun) throw new Error('网关没接受语音')
-      return true
+      const voice = await tts.speak(spoken)
+      engine = voice.engine
+      b64 = readFileSync(voice.file).toString('base64')
     } catch (error) {
-      log.warn('语音没发出去，改发文字：', error.message)
+      log.warn('语音没合成出来，改发文字：', error.message)
       await sendText(chatId, text, replyId, undefined, userId)
+      return false
+    }
+    // QQ 客户端不支持「引用 / @ + 语音」同一条消息：语音条一律单独成条（issue #103）。
+    if (replyId || userId) log.debug(`语音条不能带引用/@（QQ 限制），单独发：${chatId}`)
+    try {
+      const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`, { throwOnError: true })
+      if (r || getConfig().dryRun || !getConfig().enabled) { bump('voice'); return true }
+      const message = '语音没有发送'
+      log.warn(message)
+      failStore.getStore()?.push(message)
+      return false
+    } catch (error) {
+      if (isDefiniteFailure(error)) {
+        log.warn('语音没发出去，改发文字：', error.message)
+        await sendText(chatId, text, replyId, undefined, userId)
+      } else {
+        log.warn('语音发送结果不确定，不再改发文字：', error.message)
+        failStore.getStore()?.push(error.message)
+      }
       return false
     }
   }
@@ -644,10 +665,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       log.info(`${chatId}：发文件「${label}」（${srcLabel}）`)
       return r
     } catch (error) {
-      // 网关看不到本机路径（远程 / 容器）时，小文件改用 base64 再试
-      const canRetryBase64 = !external && size <= Math.min(FILE_BASE64_MAX, maxBytes)
+      // 只有明确失败时才回落：超时或断线可能已经发出，再发会重复。
+      const canRetryBase64 = isDefiniteFailure(error) && !external && size <= Math.min(FILE_BASE64_MAX, maxBytes)
       if (!canRetryBase64) {
         bump('errors')
+        log.warn(`${chatId}：发文件「${label}」失败${isDefiniteFailure(error) ? '' : '，发送结果不确定，不再重发'}：`, error.message)
         throw new Error(`发文件失败：${error.message}`)
       }
       try {
@@ -658,6 +680,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
         return r
       } catch (error2) {
         bump('errors')
+        log.warn(`${chatId}：发文件「${label}」失败：`, error2.message || error.message)
         throw new Error(`发文件失败：${error2.message || error.message}`)
       }
     }
@@ -1590,6 +1613,49 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     } catch (error) {}
   }
 
+  function systemFailed(chatId) {
+    const count = (systemFailures.get(chatId)?.count || 0) + 1
+    const delay = SYSTEM_BACKOFF[Math.min(count - 1, SYSTEM_BACKOFF.length - 1)]
+    systemFailures.set(chatId, { count, until: Date.now() + delay })
+    log.warn(`${chatId}：后台轮次失败，${delay / 60_000} 分钟后再试`)
+  }
+
+  /** 超时的轮次确实停稳并归档后，才能撤销挂载、换新会话。 */
+  async function recoverSystemTurn(chatId, current) {
+    const { agent, sessionId, key } = current
+    current.needsRecovery = true
+    if (typeof agent.cancel !== 'function' || typeof agent.whenIdle !== 'function') throw new Error('宿主没有取消或等待会话停止的能力')
+    let timer
+    try {
+      await Promise.race([
+        Promise.resolve().then(async () => { await agent.cancel({ kind: 'user' }); await agent.whenIdle() }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('等待旧后台轮次停止超时')), 15_000) }),
+      ])
+    } finally { clearTimeout(timer) }
+    assertActive()
+    const reg = dsh.workspaceRegistry || dsh.get('workspaceRegistry')
+    if (typeof reg?.archiveSession !== 'function') throw new Error('宿主没有归档会话的能力')
+    if (!current.archived && !(reg.archivedSessionIds || []).includes(sessionId)) {
+      const archived = await reg.archiveSession(sessionId)
+      if (archived === false || archived?.ok === false) throw new Error(archived?.message || '归档会话失败')
+      current.archived = true
+    }
+    assertActive()
+    const rec = mounted.get(key)
+    if (rec) { unmount(rec); mounted.delete(key) }
+    sessionToChat.delete(key)
+    turnState.delete(key)
+    clearSlowNotices(key)
+    slowNoticeSent.delete(key)
+    const m = map()
+    if (m.chats[chatId]?.sessionId === sessionId) {
+      delete m.chats[chatId]
+      saveMap(m)
+    }
+    systemTurns.delete(chatId)
+    log.warn(`${chatId}：卡住的后台轮次已取消并归档，换新会话`)
+  }
+
   /** 后台任务（写日记、主动搭话的草稿）：在专用会话里跑一轮，拿到正文但不自动转发。
    *  key：同一个模块有**多种**后台用途时用来分会话（如桌宠的「碎碎念」和「行为大脑」）——
    *  不带 key 走 `<name>` 那条（向后兼容，老会话继续复用），带 key 走 `<name>:<key>`，
@@ -1597,33 +1663,59 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   async function runSystemTurn(name, title, prompt, { timeoutMs = 180000, noTools = false, key: scope = '' } = {}) {
     const suffix = String(scope || '').trim().replace(/[^\w:-]/g, '').slice(0, 32)
     const chat = { chatId: suffix ? `system:${name}:${suffix}` : `system:${name}`, kind: 'system', title, noTools: !!noTools }
-    const { agent, sessionId } = await agentFor(chat)
-    const key = sessionKey(sessionId)
-    const st = turnState.get(key) || { lastTurn: -1, text: '', senders: new Set() }
-    if (st.system) throw new Error('这个后台会话的上一轮还没结束')
-    turnState.set(key, st)
-    let timer
-    let rejectWait
-    const base = new Promise((resolve, reject) => {
-      rejectWait = reject
-      st.system = { resolve, reject }
-      timer = setTimeout(() => {
-        if (st.system) st.system = { resolve() {}, reject() {} }
-        reject(new Error('等太久了'))
-      }, timeoutMs)
-    })
-    // 卸载时立即结束等待，不用等模型或 180 秒超时；result 上的拒绝由调用方或这里的 catch 兜住。
-    const wait = { timer, reject: rejectWait, result: null }
-    wait.result = base.finally(() => { clearTimeout(timer); replyWaits.delete(wait) })
-    replyWaits.add(wait)
-    wait.result.catch(() => {})
-    const result = wait.result
-    // followup 有的宿主一直等到整轮结束才返回；不能先 await 它，否则超时 Promise 会悬空。
-    // 超时后的系统会话仍保留标记，晚到的结果只丢弃，绝不误发到 QQ。
-    const system = st.system
-    Promise.resolve().then(() => agent.followup({ id: randomUUID(), role: 'user', content: [{ type: 'text', text: prompt }], source: { kind: SOURCE_KIND, speaker: { role: 'none' } } })).catch((error) => {
-      if (st.system === system) { st.system = null; system.reject(error) }
-    })
+    assertActive()
+    if (systemStarting.has(chat.chatId)) throw new Error('这个后台会话的上一轮还没结束')
+    systemStarting.add(chat.chatId)
+    let result
+    try {
+      const current = systemTurns.get(chat.chatId)
+      if (current?.st.system && current.st.system.timedOutAt == null) throw new Error('这个后台会话的上一轮还没结束')
+      const failure = systemFailures.get(chat.chatId)
+      if (failure && Date.now() < failure.until) throw new Error(`后台会话冷却中，${Math.ceil((failure.until - Date.now()) / 60_000)} 分钟后再试`)
+      if (current?.st.system && Date.now() - current.st.system.timedOutAt < SYSTEM_STUCK_GRACE_MS) throw new Error('这个后台会话的上一轮还没结束')
+      if (current?.needsRecovery || current?.st.system) {
+        try { await recoverSystemTurn(chat.chatId, current) } catch (error) {
+          if (!disposed) systemFailed(chat.chatId)
+          throw error
+        }
+      } else if (current) systemTurns.delete(chat.chatId)
+      const { agent, sessionId } = await agentFor(chat)
+      assertActive()
+      const key = sessionKey(sessionId)
+      const st = turnState.get(key) || { lastTurn: -1, text: '', senders: new Set() }
+      if (st.system) throw new Error('这个后台会话的上一轮还没结束')
+      turnState.set(key, st)
+      let timer
+      let rejectWait
+      const base = new Promise((resolve, reject) => {
+        rejectWait = reject
+        st.system = { resolve, reject }
+        timer = setTimeout(() => {
+          if (st.system === system) {
+            system.timedOutAt = Date.now()
+            systemFailed(chat.chatId)
+          }
+          reject(new Error('等太久了'))
+        }, timeoutMs)
+      })
+      const system = st.system
+      systemTurns.set(chat.chatId, { agent, sessionId, key, st })
+      // 卸载时立即结束等待，不用等模型或超时。
+      const wait = { timer, reject: rejectWait, result: null }
+      wait.result = base.then((text) => { systemFailures.delete(chat.chatId); return text }, (error) => {
+        if (system.timedOutAt == null && !disposed) systemFailed(chat.chatId)
+        throw error
+      }).finally(() => { clearTimeout(timer); replyWaits.delete(wait) })
+      replyWaits.add(wait)
+      wait.result.catch(() => {})
+      result = wait.result
+      // followup 可能等整轮结束才返回；超时后保留标记，直到收到 turn/end 或取消并归档。
+      Promise.resolve().then(() => { assertActive(); return agent.followup({ id: randomUUID(), role: 'user', content: [{ type: 'text', text: prompt }], source: { kind: SOURCE_KIND, speaker: { role: 'none' } } }) }).catch((error) => {
+        if (st.system === system && system.timedOutAt == null) { st.system = null; system.reject(error) }
+      })
+    } finally {
+      systemStarting.delete(chat.chatId)
+    }
     return result
   }
 
@@ -1740,6 +1832,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     toolDisposers.clear()
     sessionToChat.clear()
     turnState.clear()
+    systemTurns.clear()
+    systemStarting.clear()
+    systemFailures.clear()
     busy.clear()
     running.clear()
     recentMedia.dispose()
