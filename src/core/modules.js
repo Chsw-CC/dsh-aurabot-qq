@@ -341,7 +341,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
         return null
       }
       rec.exports = exports
-      log.info(`模块「${def.name || id}」${source === 'user' ? '（自己写的）' : ''}已启动`)
+      log.info(`模块「${def.name || id}」${source !== 'user' ? '' : existsSync(join(rec.dir, '.aurabot-source.json')) ? '（模块市场）' : '（自己写的）'}已启动`)
       emit('module/start', id)
     } catch (error) {
       if (disposed || rec.stopped || live.get(id) !== rec) return null

@@ -171,7 +171,7 @@ export const DEFAULTS = {
     maxPostsPerDay: 3, // 每天最多发帖（硬上限，多了容易被限）
     defaultTopic: 7214, // 发帖默认分区：7214 盒友杂谈 / 18745 数码硬件 / 806933 AI
     postStyle: 'mix', // 发帖风格：diary 大肥鱼日记 / news 热搜文 / mix 肥鱼热搜
-    shareToOwner: false, // 逛到有意思的帖子，私聊分享给主人（老用户升级不能突然收到私聊，默认关）
+    shareToOwner: true, // 逛到有意思的帖子，私聊分享给主人（和 B 站同一个思路）
     shareBias: 'normal', // stingy | normal | proactive：分享给主人的积极程度
     shareDaily: 3, // 每天最多分享几条（避免刷屏）
     // 谷时逛：只在非峰时跑自动逛，避开工作日 9-12 / 14-18 的高峰，省 token
@@ -349,7 +349,7 @@ export function normalize(raw) {
   b.maxRepliesPerDay = num(b.maxRepliesPerDay, 6, 0, 100)
   b.keywords = (Array.isArray(b.keywords) ? b.keywords : String(b.keywords || '').split(/[\n,，]+/)).map((x) => String(x).trim()).filter(Boolean).slice(0, 30)
   const hb = c.heybox
-  hb.shareToOwner = bool(hb.shareToOwner, false)
+  hb.shareToOwner = bool(hb.shareToOwner, true)
   hb.shareBias = ['stingy', 'normal', 'proactive'].includes(hb.shareBias) ? hb.shareBias : 'normal'
   hb.shareDaily = Math.round(num(hb.shareDaily, 3, 0, 10))
   hb.cookie = String(hb.cookie || '').trim()
