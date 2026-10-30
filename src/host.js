@@ -28,6 +28,7 @@ import { createUpdateChecker, changelogSection } from './core/update.js'
 import { parseCommand, runCommand, createMutes, commandList } from './chat/commands.js'
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
 import { createModules, API_VERSION } from './core/modules.js'
+import { createCommunity } from './core/community.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
 import { BUILTINS } from './modules/index.js'
@@ -369,8 +370,10 @@ export function apply(ctx) {
   }
   mods.listen('module/start', (id) => { if (id === 'pet') injectPetPort() })
 
+  const community = createCommunity({ mods, getConfig, setConfig, log, version: VERSION })
   const booted = mods.boot()
   booted.then(() => injectPetPort()).catch(() => {})
+  booted.then(() => community.migrate()).catch((error) => log.warn('搬到社区库的模块处理失败：', error.message))
   booted.then(() => bridge.refresh())
 
   // ---------- 盯会话：一轮结束就发回 QQ ----------
@@ -907,6 +910,17 @@ export function apply(ctx) {
 
   // 模块（面板「扩展」页）
   route('/modules', async () => ({ ok: true, dir: mods.dir(), safeMode: cfg.safeMode, apiVersion: API_VERSION, list: mods.status(), prompt: mods.promptFor('') }))
+  route('/modules/community', async (req) => {
+    try { return { ok: true, ...(await community.list({ force: query(req).force === '1' })) } } catch (error) { return { ok: false, message: error.message, list: [] } }
+  })
+  route('/modules/community/install', async (req) => {
+    const b = await readBody(req)
+    return { ...(await community.install(String(b.id || ''), { confirmReplace: b.confirmReplace === true })), modules: mods.status() }
+  })
+  route('/modules/community/remove', async (req) => {
+    const b = await readBody(req)
+    return { ...(await community.remove(String(b.id || ''), { purge: b.purge === true })), modules: mods.status() }
+  })
   route('/modules/reload', async (req) => {
     const id = String((await readBody(req)).id || '')
     if (!id) { await mods.sync(); return { ok: true, message: '检查过了', list: mods.status() } }

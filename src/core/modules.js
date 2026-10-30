@@ -25,6 +25,8 @@ const ID_RE = /^[a-z][a-z0-9-]{1,39}$/
 const ENTRY = ['index.mjs', 'index.js']
 const DOC = 'API.md'
 const TYPES = 'aurabot.d.ts'
+// 从内置搬到社区库的模块：接口路径不变，面板页照常能用
+const STABLE_ROUTES = new Set(['pet', 'douyin', 'heybox', 'group-admin'])
 
 export const userDir = () => dataDir('modules')
 
@@ -188,7 +190,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
     }
     const track = (off) => { if (typeof off === 'function') rec.offs.push(off); return off }
     // 内置模块和替换它的版本用原来的路径（内置的面板页照常能用）；新模块放在 /ext/模块id/ 下
-    const prefix = builtinDefs.has(id) ? '' : `/ext/${id}`
+    const prefix = builtinDefs.has(id) || STABLE_ROUTES.has(id) ? '' : `/ext/${id}`
     const def = rec.def
     const api = {
       id,
@@ -583,6 +585,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
         builtin: Boolean(b),
         builtinVersion: b?.version || '',
         hasUser: Boolean(u),
+        community: Boolean(u && existsSync(join(u.dir, '.aurabot-source.json'))),
         userDir: u?.dir || '',
         safeSkipped: Boolean(u?.safe),
         running: rec ? rec.source : null, // 'builtin' | 'user' | null

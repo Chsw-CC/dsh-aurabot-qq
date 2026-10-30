@@ -1677,7 +1677,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
 
     // 「桌宠」面板卡：状态、装客户端、专注模式、心跳、表情预览。数据走 /panel/pet/* 代理，模块没装好时给引导。
     const PET_MOODS = [{ key: 'idle', label: '😐 平常' }, { key: 'happy', label: '😄 开心' }, { key: 'shy', label: '😳 害羞' }, { key: 'sad', label: '😢 委屈' }, { key: 'angry', label: '😠 生气' }, { key: 'sleepy', label: '😴 困了' }, { key: 'think', label: '🤔 想事' }, { key: 'love', label: '🥰 喜欢你' }]
-    // 行为动作全表（面板「试一下」）：与 fork/src/modules/pet/index.js 的 BEHAVIOR_ACTIONS / BEHAVIOR_DEFERRED 一一对应。
+    // 行为动作全表（面板「试一下」）：与社区模块 pet 的 index.mjs 里的 BEHAVIOR_ACTIONS / BEHAVIOR_DEFERRED 一一对应。
     // tier：1 = 第一批已开放；2 = 第二批图标动作（服务端隔离区，可一键归还）；3 = 第三批暂未实现（点了客户端回执 refused:not-implemented）。
     const PET_BEHAVIOR_ACTIONS = [
       { action: 'chase_cursor', name: '追鼠标', effect: '扑过去追着你的鼠标跑，追到后按住指针 5 秒再松开', tier: 1 },
@@ -2558,6 +2558,46 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           : h('div', { className: 'ab-small ab-muted' }, '这个场合没有工具'))
     }
 
+    /** 社区模块：从社区库下载、更新、删除。安装前给用户看来源和能力，能力声明不是沙箱。 */
+    function Community({ toast, setModules, reload }) {
+      const [data, setData] = useState(null)
+      const [busy, setBusy] = useState('')
+      const load = (force) => get('/modules/community' + (force ? '?force=1' : '')).then(setData)
+      useEffect(() => { load() }, [])
+      const done = async (r) => {
+        toast(r.message, r.ok ? 'ok' : 'err')
+        setModules(r.modules)
+        await load()
+        reload()
+      }
+      const install = async (m) => {
+        const caps = (m.capabilities || []).join('、') || '无'
+        const why = '来源：社区模块库 dsh-aurabot-qq-mods\n版本：' + m.version + '\n作者：' + m.author + '\n能力：' + caps + '\n\n能力声明不是沙箱：模块和插件在同一进程运行。继续吗？'
+        if (!confirm((m.installed ? '更新' : '安装') + '「' + m.name + '」？\n\n' + why)) return
+        if (m.replacesBuiltin && !confirm('「' + m.name + '」会替换同名内置模块，确定吗？')) return
+        setBusy(m.id)
+        try { await done(await post('/modules/community/install', { id: m.id, confirmReplace: Boolean(m.replacesBuiltin) })) } finally { setBusy('') }
+      }
+      const remove = async (m) => {
+        if (!confirm('卸载「' + m.name + '」？')) return
+        const purge = confirm('把它的数据和设置也清掉吗？\n确定 = 一起清掉；取消 = 留着，以后重装还能用')
+        setBusy(m.id)
+        try { await done(await post('/modules/community/remove', { id: m.id, purge })) } finally { setBusy('') }
+      }
+      const list = (data && data.list) || []
+      return h(Card, { title: '社区模块', desc: '从社区库下载更多本事。装之前看清来源和能力；模块和插件在同一进程运行，能力声明拦不住恶意代码。' },
+        h('div', { className: 'ab-flex' }, h(Btn, { small: true, kind: 'ghost', onClick: () => load(true) }, '刷新')),
+        !data ? h('div', { className: 'ab-small' }, '加载中…') : null,
+        data && data.ok === false ? h('div', { className: 'ab-note warn' }, data.message) : null,
+        data && data.ok !== false && !list.length ? h('div', { className: 'ab-small' }, '社区库里还没有模块。') : null,
+        ((data && data.revoked) || []).map((r) => h('div', { key: r.id, className: 'ab-note err' }, '「' + r.id + '」' + r.version + ' 已撤回：' + r.reason + '。建议关闭或卸载。')),
+        list.map((m) => h(Row, { key: m.id, label: m.name + ' ' + (m.installed || m.version), hint: [m.description, m.delisted ? '已从社区库下架' : '', m.foreign ? '有同名的自己写的文件夹，不会覆盖' : '', m.blocked].filter(Boolean).join(' · ') },
+          h('div', { className: 'ab-flex' },
+            !m.installed && !m.foreign && !m.delisted ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? '安装中…' : '安装') : null,
+            m.update ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? '更新中…' : '更新到 ' + m.version) : null,
+            m.installed ? h(Btn, { small: true, kind: 'danger', disabled: Boolean(busy), onClick: () => remove(m) }, '卸载') : null))))
+    }
+
     /** 扩展页：所有模块（内置的 + 自己写的）、新建、安全模式。 */
     function Modules({ st, draft, toast, reload }) {
       const [data, setData] = useState(null)
@@ -2570,7 +2610,8 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
       if (!data) return h(Empty, { icon: '⏳', text: '加载中…' })
       const list = data.list || []
       const builtin = list.filter((m) => m.builtin)
-      const mine = list.filter((m) => !m.builtin)
+      const mine = list.filter((m) => !m.builtin && !m.community)
+      const fromCommunity = list.filter((m) => m.community)
       const props = { draft, setModules, toast, reload: () => { reload(); load() } }
       const create = async () => {
         const r = await post('/modules/create', { id: newId.trim(), name: newName.trim() })
@@ -2595,6 +2636,8 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
             h('input', { className: 'ab-input', style: { maxWidth: 180 }, placeholder: 'id，如 weather', value: newId, onChange: (e) => setNewId(e.target.value.toLowerCase()) }),
             h('input', { className: 'ab-input', placeholder: '名字，如 查天气', value: newName, onChange: (e) => setNewName(e.target.value) }),
             h(Btn, { kind: 'primary', small: true, disabled: !newId.trim(), onClick: create }, '新建'))),
+        h(Community, { toast, setModules, reload: props.reload }),
+        fromCommunity.length ? h(Card, { title: '社区模块（' + fromCommunity.length + '）' }, h('div', null, fromCommunity.map((m) => h(ModuleRow, { key: m.id, m, ...props })))) : null,
         mine.length ? h(Card, { title: '自己写的（' + mine.length + '）' }, h('div', null, mine.map((m) => h(ModuleRow, { key: m.id, m, ...props })))) : null,
         h(Card, { title: '内置模块（' + builtin.length + '）', desc: '关掉的模块：她就没有这项本事，相关的标签页也会藏起来。连接、权限、人格、聊天这些是核心，不能关。' },
           h('div', null, builtin.map((m) => h(ModuleRow, { key: m.id, m, ...props })))),
