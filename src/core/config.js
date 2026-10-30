@@ -402,6 +402,8 @@ export function normalize(raw) {
   memory: { enabled: true, recallCount: 6, dailyConsolidate: true, consolidateTimes: ['04:00', '16:00'], keepChatlogDays: 0, mergeGroups: false }, // keepChatlogDays：聊天流水保留（0 = 整理完就删，-1 = 永久，N = 留 N 天）；mergeGroups：整理时把同一个人名下的重复条目合并（默认关，每组多一次模型调用）；consolidateTimes：每天这几个时间把临时记忆整理进长期记忆、相处经验和说话方式
   g.interests = (Array.isArray(g.interests) ? g.interests : String(g.interests || '').split(/[\s,，]+/)).map((s) => String(s).trim()).filter(Boolean)
   g.minRelevance = num(g.minRelevance, 0.25, 0, 1)
+  // @ 了别人时不算叫她（只挡必回，仍然可以插话）；默认关，保持原行为
+  g.ignoreAtOthers = bool(g.ignoreAtOthers, false)
   c.merge.enabled = bool(c.merge.enabled, true)
   c.merge.waitSec = num(c.merge.waitSec, 2.5, 0, 30)
   c.merge.maxSec = Math.max(c.merge.waitSec, num(c.merge.maxSec, 8, 0, 60))
