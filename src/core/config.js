@@ -393,6 +393,9 @@ export function normalize(raw) {
   delete c.memory.consolidateAt
   c.memory.consolidateTimes = [...new Set((Array.isArray(c.memory.consolidateTimes) ? c.memory.consolidateTimes : String(c.memory.consolidateTimes || '').split(/[\s,，]+/)).map((t) => hhmm(t, '')).filter(Boolean).map((t) => t.padStart(5, '0')))].sort().slice(0, 4)
   if (!c.memory.consolidateTimes.length) c.memory.consolidateTimes = ['04:00', '16:00']
+  c.chat = c.chat || {}
+  c.chat.seedHistory = bool(c.chat.seedHistory, false)
+  c.chat.seedHistoryCount = num(c.chat.seedHistoryCount, 20, 1, 50)
   c.memory.recallCount = num(c.memory.recallCount, 6, 0, 20)
   c.memory.keepChatlogDays = num(c.memory.keepChatlogDays, 0, -1, 3650)
   g.interests = (Array.isArray(g.interests) ? g.interests : String(g.interests || '').split(/[\s,，]+/)).map((s) => String(s).trim()).filter(Boolean)
