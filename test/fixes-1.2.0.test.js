@@ -242,3 +242,12 @@ test('模型一直没有正文：只调用两次并返回空字符串', async ()
   assert.equal(calls.length, 2)
   assert.deepEqual(calls.map((c) => c.maxTokens), [600, 1800])
 })
+
+test('桌宠行为回执只留 3 天，别的记忆不受影响（#138）', async () => {
+  const { shouldForget } = await import('../src/features/memory.js')
+  const now = Date.now()
+  const day = 86400_000
+  assert.equal(shouldForget({ source: 'pet', at: now - 2 * day }, now), false)
+  assert.equal(shouldForget({ source: 'pet', at: now - 4 * day }, now), true)
+  assert.equal(shouldForget({ source: 'self', at: now - 400 * day }, now), false)
+})

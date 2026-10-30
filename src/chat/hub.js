@@ -201,6 +201,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   }
 
   /** 有聊天流水的日期（升序）。 */
+  /** 她在 QQ 之外说的话（桌宠气泡）：记进这个聊天，对方在 QQ 回她时她知道在接哪句（#133）。 */
+  function noteSaid(chatId, text) {
+    logChat(chatId, 'bot', text)
+    saidElsewhere.set(chatId, [...(saidElsewhere.get(chatId) || []), { at: Date.now(), text: String(text).slice(0, 300) }].slice(-5))
+  }
+
   function chatLogDays() {
     try {
       return readdirSync(dataDir('chatlog')).filter((n) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(n)).map((n) => n.slice(0, 10)).sort()
@@ -1733,6 +1739,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     localTranscribe,
     ensureWorkspace,
     chatLogOf,
+    noteSaid,
     chatLogDays,
     deleteChatLog,
     sessions: () => map().chats,

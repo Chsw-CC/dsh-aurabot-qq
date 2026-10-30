@@ -928,8 +928,13 @@ export function apply(ctx) {
   // 本地接口
   const openFolder = (dir) => {
     mkdirSync(dir, { recursive: true })
-    spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref()
-    return { ok: true, message: '打开了' }
+    const opener = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open'
+    // 子进程起不来是以 error 事件抛的，没人听就是未捕获异常，会把 DSH 整个带走（#135）
+    return new Promise((resolve) => {
+      const child = spawn(opener, [dir], { detached: true, stdio: 'ignore' })
+      child.once('error', (error) => resolve({ ok: false, message: `打不开文件夹：${dir}（${error.message}）` }))
+      child.once('spawn', () => { child.unref(); resolve({ ok: true, message: '打开了' }) })
+    })
   }
   route('/local/status', async () => ({ ok: true, dir: local.dir(), list: local.status() }))
   route('/local/template', async (req) => {

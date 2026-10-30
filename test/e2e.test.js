@@ -1198,6 +1198,18 @@ test('慢工具卡住超过 1.5 秒先发一条「正在做」提示，不让主
   rmSync(modsDir, { recursive: true, force: true })
 })
 
+test('DSH 要授权时通知主人私聊，同一请求只发一次（#136）', async () => {
+  const before = mock.calls.length
+  const ask = { type: 'approval/asked', data: { id: 'approval-1', toolName: 'pwsh', reason: '要跑命令' } }
+  fake.emit('session/event', { id: 's', title: '测试会话' }, ask)
+  fake.emit('session/event', { id: 's', title: '测试会话' }, ask)
+  await until(() => mock.calls.slice(before).some((c) => c.action === 'send_private_msg'))
+  await sleep(100)
+  const sent = mock.calls.slice(before).filter((c) => c.action === 'send_private_msg' && String(c.params.user_id) === OWNER)
+  assert.equal(sent.length, 1)
+  assert.match(JSON.stringify(sent[0].params.message), /要授权.*pwsh.*没法代答/)
+})
+
 test('主人私聊里这一轮的说话人记录丢了，也按主人算（#90 兜底）', async () => {
   const n = fake.turns.length
   mock.push(priv(OWNER, text('兜底测试')))
