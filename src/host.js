@@ -29,6 +29,7 @@ import { parseCommand, runCommand, createMutes, commandList } from './chat/comma
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
 import { createModules, API_VERSION } from './core/modules.js'
 import { createCommunity } from './core/community.js'
+import { applyPendingRestore, cancelRestore, createBackup, listBackups, pendingRestore, saveUpload, stageRestore } from './core/backup.js'
 import { cleanText } from './core/text.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
@@ -47,6 +48,11 @@ const PREFIX = '/aurabot/api'
 export function apply(ctx) {
   const logger = createLogger({ dsh: ctx })
   const log = logger.child('core')
+  // 恢复备份必须在读配置之前：读完配置后内存里的旧状态会写回去
+  try {
+    const restored = applyPendingRestore()
+    if (restored) log.info(`已恢复备份：${restored} 个文件，原来的文件在 backups/ 里留了底`)
+  } catch (error) { log.error('恢复备份失败：', error.message) }
   let cfg = loadConfig()
   let mods = null
   let bridge = null
@@ -944,6 +950,33 @@ export function apply(ctx) {
       child.once('spawn', () => { child.unref(); resolve({ ok: true, message: '打开了' }) })
     })
   }
+  // 备份：文件里有账号凭证，只存在本机文件夹，不提供网页下载
+  let backupJob = null // { running, done, total, error, result }
+  const backupAction = (run) => async (req) => {
+    if (req.method !== 'POST' || req.headers?.['x-aurabot-backup'] !== '1') return { ok: false, message: '请从面板发起操作' }
+    return run(req)
+  }
+  route('/backup/state', async () => ({ ok: true, job: backupJob, list: listBackups(), pending: pendingRestore(), dir: dataDir('backups') }))
+  route('/backup/create', backupAction(async () => {
+    if (backupJob?.running) return { ok: false, message: '上一个备份还在打包' }
+    backupJob = { running: true, done: 0, total: 0 }
+    createBackup({ version: VERSION, onProgress: (p) => { backupJob = { ...backupJob, ...p } } })
+      .then((result) => { backupJob = { running: false, result }; log.info(`备份完成：${result.name}，${result.files} 个文件`) })
+      .catch((error) => { backupJob = { running: false, error: error.message }; log.error('备份失败：', error.message) })
+    return { ok: true, message: '开始打包了' }
+  }))
+  route('/backup/open', backupAction(async () => openFolder(dataDir('backups'))))
+  route('/backup/upload', backupAction(async (req) => {
+    const buf = await readRaw(req, 2 * 1024 * 1024 * 1024 - 1)
+    if (!buf.length) return { ok: false, message: '文件是空的' }
+    try { return await stageRestore(await saveUpload(buf)) } catch (error) { return { ok: false, message: error.message } }
+  }))
+  route('/backup/restore-path', backupAction(async (req) => {
+    const path = String((await readBody(req)).path || '').trim().replace(/^"|"$/g, '')
+    if (!path) return { ok: false, message: '填备份文件的完整路径' }
+    try { return await stageRestore(path) } catch (error) { return { ok: false, message: error.message } }
+  }))
+  route('/backup/cancel', backupAction(async () => { cancelRestore(); return { ok: true, message: '取消了' } }))
   route('/local/status', async () => ({ ok: true, dir: local.dir(), list: local.status() }))
   route('/local/template', async (req) => {
     const slot = String((await readBody(req)).slot || '')
