@@ -14,7 +14,10 @@ export function isStickerSegment(seg) {
   if (seg.type === 'mface') return true
   if (seg.type !== 'image') return false
   const d = seg.data
-  if (String(d.sub_type ?? d.subType ?? '') === '1') return true
+  const sub = String(d.sub_type ?? d.subType ?? '')
+  if (sub === '1') return true
+  // 带文字说明的表情（比如「[啊？]」）是 sub_type 7；只认有说明的，普通图片的说明是「[图片]」
+  if (sub === '7' && d.summary && d.summary !== '[图片]') return true
   if (d.emoji_id || d.emojiId) return true
   return false
 }

@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs'
 import { createBili } from '../../bili/duty.js'
 import { defineTool, str } from '../../tools/tools.js'
-import { profileToolVisible, profilePermits } from '../../chat/access.js'
+import { permOf, profileToolVisible, profilePermits } from '../../chat/access.js'
 import { avatarSource } from '../profile/index.js'
 
 export default {
@@ -41,7 +41,10 @@ export default {
           properties: { link: str('B 站链接或 BV 号'), text: str('评论内容') },
           required: ['link', 'text'],
           execute: async ({ link, text }) => {
-            if (!hub.turnHasOwner(sessionId)) return { ok: false, message: '只有主人能让我去发评论' }
+            // 这里的「仅主人」包括主人在群里开口，比改资料类权限宽一点，保持原来的行为
+            const perm = permOf(api.config(), 'biliComment')
+            if (perm === 'off') return { ok: false, message: '这个操作在面板里关掉了' }
+            if (perm === 'owner' && !hub.turnHasOwner(sessionId)) return { ok: false, message: '只有主人能让我去发评论' }
             return bili.comment(String(link || ''), String(text || ''))
           },
         }),

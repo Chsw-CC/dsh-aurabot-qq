@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { gifFrames, parseMessageEvent } from '../src/chat/inbound.js'
+import { gifFrames, isStickerSegment, parseMessageEvent } from '../src/chat/inbound.js'
 import { readQqFile } from '../src/features/qq-file.js'
 
 const file = (over = {}) => ({ name: 'a.txt', size: 5, id: 'f1', url: 'https://x/a', hash: '', busid: 0, ...over })
@@ -47,4 +47,12 @@ test('gifFrames 数出动图帧数', () => {
   const gif = Buffer.from([...Buffer.from('GIF89a'), ...new Array(7).fill(0), ...frame, ...frame, ...frame])
   assert.equal(gifFrames(gif), 3)
   assert.equal(gifFrames(Buffer.from([0xff, 0xd8, 0xff])), 0)
+})
+
+test('带文字说明的 sub_type 7 算表情，没说明的不算', () => {
+  const image = (data) => ({ type: 'image', data })
+  assert.equal(isStickerSegment(image({ sub_type: 7, summary: '[啊？]' })), true)
+  assert.equal(isStickerSegment(image({ sub_type: 7, summary: '[图片]' })), false)
+  assert.equal(isStickerSegment(image({ sub_type: 7 })), false)
+  assert.equal(isStickerSegment(image({ sub_type: 0, summary: '[图片]' })), false)
 })
