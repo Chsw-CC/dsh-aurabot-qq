@@ -121,10 +121,18 @@ const isUnsupportedEffort = (error) => {
   return /UNSUPPORTED_REASONING_EFFORT|does not support reasoning effort|reasoning effort/i.test(msg)
 }
 
+/** 最近一次模型一个字没写时流里有什么：排查「模型没返回内容」用。 */
+let lastEmpty = ''
+export const lastEmptyInfo = () => lastEmpty
+
 async function runStream (llm, params) {
   let out = ''
+  const types = {}
+  let finish = ''
   for await (const chunk of llm.stream(params)) {
     if (!chunk) continue
+    types[chunk.type] = (types[chunk.type] || 0) + 1
+    if (chunk.type === 'finish') finish = JSON.stringify(chunk.reason || {}).slice(0, 120)
     if (chunk.type === 'text-delta') out += chunk.text
     if (chunk.type === 'finish' && chunk.reason && chunk.reason.kind === 'error') {
       const f = chunk.reason.failure || {}
@@ -133,6 +141,7 @@ async function runStream (llm, params) {
       throw error
     }
   }
+  if (!out.trim()) lastEmpty = `结束原因 ${finish || '无'}，数据块 ${JSON.stringify(types)}`
   return out.trim()
 }
 
@@ -171,7 +180,7 @@ export async function askModel (dsh, o) {
       // 推理模型可能把输出预算全花在思考上，一个字没写：放宽预算再试一次
       if (out || widened) return out
       widened = true
-      base.maxTokens = Math.min(4000, base.maxTokens * 3)
+      base.maxTokens = Math.max(base.maxTokens, Math.min(4000, base.maxTokens * 3))
     } catch (error) {
       // 能力探测没查到 / 模型临时不认：去掉思考强度再来一次
       if (attempt === 0 && effort && isUnsupportedEffort(error)) {

@@ -39,11 +39,11 @@ function setup(answer) {
   return { mem, calls, warns }
 }
 
-test('模型没写出东西：关掉思考、放宽预算再问一次', async () => {
+test('模型没写出东西：关掉思考、预算放到 16000 再问一次', async () => {
   const { mem, calls } = setup((n, effort) => (effort === 'off' ? '[]' : ''))
   const r = await mem.consolidate({ includeToday: true })
   assert.equal(r.ok, true, r.message)
-  assert.deepEqual(calls.at(-1), { reasoningEffort: 'off', maxTokens: 4000 })
+  assert.deepEqual(calls.at(-1), { reasoningEffort: 'off', maxTokens: 16000 })
 })
 
 test('同一批连续 3 次没有数组就跳过，错误里带模型返回的内容', async () => {

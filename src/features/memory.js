@@ -12,10 +12,11 @@
 
 import { randomUUID } from 'node:crypto'
 import { dataDir, readJson, writeJson } from '../core/store.js'
-import { askModel } from '../core/llm.js'
+import { askModel, lastEmptyInfo } from '../core/llm.js'
 import { clipText } from '../core/text.js'
 
 const NO_ARRAY = '提炼记忆时模型没有返回 JSON 数组'
+const EXTRACT_RETRY_TOKENS = 16000
 
 // ---------------- 纯函数：切词与打分 ----------------
 
@@ -637,10 +638,10 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
       ...extra,
     })
     let out = await ask()
-    // 推理模型可能把预算全花在思考上，一个字没写：关掉思考再问一次
-    if (!out) out = await ask({ reasoningEffort: 'off', maxTokens: 4000 })
+    // 推理模型可能把预算全花在思考上，一个字没写就被截断；有的模型思考关不掉，所以同时放宽预算
+    if (!out) out = await ask({ reasoningEffort: 'off', maxTokens: EXTRACT_RETRY_TOKENS })
     const m = out.match(/\[[\s\S]*\]/)
-    if (!m) throw new Error(`${NO_ARRAY}（模型返回：${out ? clipText(out, 60) : '空'}）`)
+    if (!m) throw new Error(`${NO_ARRAY}（模型返回：${out ? clipText(out, 60) : '空，' + lastEmptyInfo()}）`)
     const arr = JSON.parse(m[0])
     if (!Array.isArray(arr)) throw new Error(NO_ARRAY)
     let n = 0
