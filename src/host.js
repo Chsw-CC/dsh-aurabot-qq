@@ -631,6 +631,8 @@ export function apply(ctx) {
       // 面板口径：间隔 1~9999 分钟、每日上限 0~9999 次（0 = 不发）
       if (Number.isFinite(b[k])) patch[k] = k === 'whisperMaxPerDay' ? Math.min(9999, Math.max(0, Math.floor(b[k]))) : Math.min(9999, Math.max(1, Math.floor(b[k])))
     }
+    // 人物大小倍率：0.5~2.0，步进 0.05；坏值忽略（别把桌宠缩没了）
+    if (Number.isFinite(b.petScale)) patch.petScale = Math.min(2, Math.max(0.5, Math.round(b.petScale * 20) / 20))
     if (typeof b.whisperLines === 'string') patch.whisperLines = b.whisperLines.slice(0, 4000)
     // 素材包下载地址：内建模块的 settings 字段不渲染成表单（同上），这里是它唯一的写入通道。
     // 只收 http/https（或空 = 回到内置默认），别把 file:// 之类塞进来当下载源
