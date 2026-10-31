@@ -33,6 +33,7 @@ import { applyPendingRestore, cancelRestore, createBackup, listBackups, pendingM
 import { cleanText } from './core/text.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
+import { setSsrpMode } from './core/net.js'
 import { BUILTINS } from './modules/index.js'
 
 export const name = 'aurabot'
@@ -57,6 +58,7 @@ export function apply(ctx) {
   let mods = null
   let bridge = null
   const getConfig = () => cfg
+  setSsrpMode(() => (getConfig().security && getConfig().security.ssrfMode === 'loose' ? 'loose' : 'strict'))
   const secrets = () => { for (const k of ['webuiPassword', 'httpToken', 'wsToken']) registerSecret(cfg.snowluma[k]); registerSecret(cfg.imageGen.apiKey); registerSecret(cfg.bridge.token) }
   const setConfig = (next) => {
     const before = cfg

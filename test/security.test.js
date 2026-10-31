@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 const { ssrfBlocked, setSsrpMode, currentSsrpMode, assertPublicUrl, isPrivateIp, fetchImage } = await import('../src/core/net.js')
+const { normalize } = await import('../src/core/config.js')
 
 // 本机代理 DNS 的真实形态：公网 A + IPv6 ULA
 const MIXED = ['28.0.0.162', 'fdfe:dcba:9876::96']
@@ -10,6 +11,13 @@ const PUBLIC_ONLY = ['28.0.0.162']
 const PRIVATE_ONLY = ['192.168.1.10']
 const LOOPBACK = ['127.0.0.1']
 const METADATA = ['169.254.169.254']
+
+test('配置：SSRF 模式默认 strict，只接受 strict / loose', () => {
+  assert.equal(normalize({}).security.ssrfMode, 'strict')
+  assert.equal(normalize({ security: { ssrfMode: 'loose' } }).security.ssrfMode, 'loose')
+  assert.equal(normalize({ security: { ssrfMode: '随便写' } }).security.ssrfMode, 'strict')
+  assert.equal(normalize({ security: null }).security.ssrfMode, 'strict')
+})
 
 test('严格模式：只要有一个内网地址就拒绝', () => {
   assert.equal(ssrfBlocked(MIXED, 'strict'), true, '公网 + ULA → 拒绝')
