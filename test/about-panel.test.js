@@ -9,8 +9,8 @@ const src = readFileSync(new URL('../client/client.js', import.meta.url), 'utf8'
 
 test('面板源码契约：「关于」页签注册在系统组，组件表与搜索索引都接上了', () => {
   assert.ok(src.includes("{ id: 'about', label: '关于' }"), '缺「关于」页签')
-  assert.ok(src.includes("tabs: ['connect', 'model', 'access', 'local', 'modules', 'about', 'logs']"), '「关于」要排在「扩展」和「日志」之间')
-  assert.ok(src.includes('about: About, logs: Logs'), '组件表缺 about → About 的接线')
+  assert.ok(src.includes("tabs: ['connect', 'model', 'access', 'about', 'logs']"), '「关于」要排在「日志」前面')
+  assert.ok(src.includes('about: About'), '组件表缺 about → About 的接线')
   assert.ok(src.includes("about: '关于 关于我们 版本 许可 鸣谢 开源'"), '搜索索引缺「关于」关键词')
   assert.ok(src.includes('function About({ st })'), '缺 About 组件')
 })

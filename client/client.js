@@ -729,7 +729,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
       const coders = ['accomplish07zrh-eng', 'baihengaead', 'RookieApe-tao', 'GitNekopedia', 'Chsw-CC', 'chsw']
       const reporters = ['cxin21', 'zhuyi314', '38213063', 'HuaGyuu', 'CYyare', 'yunxirumo', 'XiongYachao']
       const kv = (rows) => h('div', { className: 'ab-kv' }, rows.flatMap(([k, v]) => [h('span', { key: k }, k), h('span', { key: k + '-v' }, v)]))
-      const copyGroup = (e) => { try { navigator.clipboard.writeText('554850395'); e.target.textContent = '已复制'; setTimeout(() => { e.target.textContent = '复制' }, 1500) } catch (error) {} }
+      const copyGroup = (e) => { try { navigator.clipboard.writeText('1130575035'); e.target.textContent = '已复制'; setTimeout(() => { e.target.textContent = '复制' }, 1500) } catch (error) {} }
       // 核心开发者：仓库创建者 + 两位主要贡献者（只展示头像与名字，不标具体模块）
       const devs = ['accomplish07zrh-eng', 'baihengaead', 'RookieApe-tao']
       const dev = (n) => h('div', { key: 'dev-' + n, className: 'ab-dev' },
@@ -742,7 +742,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         h('div', { className: 'inner' }, children))
       return h('div', { className: 'ab-grid' },
         h(Card, { className: 'ab-about-lead', title: 'Aurabot · 住在 QQ 里的 AI 伙伴「大肥鱼」🐟', desc: 'v' + st.version + ' · 面板 API v' + (st.apiVersion || '?') },
-          h('p', null, '一个 DeepSeek Harness 插件，经 SnowLuma（OneBot v11 网关）接入 QQ。聊天、语音、表情包、日记、B 站、桌宠这些本事都来自内置模块体系（18 个），再加「扩展」页里自己写的第三方模块。'),
+          h('p', null, '一个 DeepSeek Harness 插件，经 SnowLuma（OneBot v11 网关）接入 QQ。聊天、语音、表情包、日记、B 站这些本事都来自内置模块，更多模块在「模块市场」，也可以自己写。'),
           h('div', { className: 'ab-flex', style: { marginTop: 14 } },
             h('a', { key: 'repo', className: 'ab-btn sm', href: repo, target: '_blank', rel: 'noreferrer' }, 'GitHub 仓库'),
             h('a', { key: 'doc', className: 'ab-btn sm', href: repo + '/blob/main/docs/USER-MANUAL.md', target: '_blank', rel: 'noreferrer' }, '用户手册'),
@@ -750,7 +750,7 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
         ),
         h(Card, { className: 'ab-about-lead', title: '加入我们', desc: '交流、报 bug、提代码都在这儿。' },
           h('div', { className: 'ab-flex', style: { flexWrap: 'wrap', gap: 12 } },
-            h('span', { key: 'qq', className: 'ab-about-chip' }, '协作 / 交流 QQ 群 ', h('b', null, '554850395'),
+            h('span', { key: 'qq', className: 'ab-about-chip' }, 'QQ 交流群 ', h('b', null, '1130575035'),
               h('button', { key: 'cp', type: 'button', className: 'ab-btn sm', onClick: copyGroup }, '复制')),
             h('a', { key: 'issue', className: 'ab-btn sm', href: repo + '/issues', target: '_blank', rel: 'noreferrer' }, '报 bug / 提需求'),
             h('a', { key: 'pr', className: 'ab-btn sm', href: repo + '/pulls', target: '_blank', rel: 'noreferrer' }, '提代码（PR）'),
@@ -780,7 +780,6 @@ body[data-ds-dark-theme] .ab-root,.ab-root.ab-dark{--ab-shadow:0 1px 2px rgba(0,
             kv([
               ['插件代码', h('span', { key: 'mit' }, 'MIT License（见仓库 LICENSE）')],
               ['「大肥鱼」形象', h('span', { key: 'cc' }, 'CC BY-NC-SA 4.0（署名 · 非商业 · 相同方式共享）')],
-              ['桌宠客户端', h('span', { key: 'pet' }, '移植自 '), gh('PC2005-cloud'), h('span', { key: 'pet2' }, ' 的 dsh-pet（MIT）')],
               ['参考插件', h('span', { key: 'yuu' }, gh('Yuuyuko-uu'), ' 的 dsh-qq-bridge / speak-up / mood / memory（MIT，只借鉴踩坑经验）')],
               ['其他署名', h('span', { key: 'tp' }, 'qq-bridge / QSH、surfcore purpose-engine 等，见 THIRD-PARTY-NOTICES.md')],
             ]),
