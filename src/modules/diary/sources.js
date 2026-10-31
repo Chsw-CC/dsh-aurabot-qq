@@ -6,8 +6,9 @@ import { basename, extname, isAbsolute, join, relative, resolve } from 'node:pat
 import { stickerPath } from '../../features/stickers.js'
 import { loadShots, shotPath } from '../../bili/shots.js'
 import { dataDir } from '../../core/store.js'
+import { clipText } from '../../core/text.js'
 
-export const clip = (value, max = 160) => String(value || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, max)
+export const clip = (value, max = 160) => clipText(String(value || '').replace(/[\r\n\t]+/g, ' ').trim(), max)
 export const sourceId = (value) => createHash('sha256').update(String(value)).digest('hex').slice(0, 28)
 export const publicText = (value) => !/(?:cookie|sessionid|access.token|验证码|身份证|银行卡|密码|手机号|住址|病历|私聊原文|\b\d{7,}\b|[\w.+-]+@[\w.-]+\.[a-z]{2,})/i.test(String(value))
 

@@ -1549,7 +1549,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
       }
       return h(Card, { title: '图文日记与预览', right: f.sw('diary.rich.enabled'), desc: '默认关闭。开启后围绕公开浏览经历或心情写日记，按备注挑选配图；关闭后沿用原来的日记流程。' },
         draft.diary.rich?.enabled ? h('div', null,
-          h(Row, { label: '表情包' }, f.sw('diary.rich.stickers')),
+          h(Row, { label: '表情包', hint: '默认关闭，需主人单独开启；开启后可能将从群聊收藏的表情图发布到空间' }, f.sw('diary.rich.stickers')),
           h(Row, { label: '公开浏览配图', hint: '仅取已浏览作品的公开封面；发布会附原作者和作品链接' }, f.sw('diary.rich.browsing')),
           h(Row, { label: '使用指定目录的图片', hint: '只放你允许自动发布到空间的图片；文件内容不会自动识别隐私' }, f.sw('diary.rich.local')),
           h(Row, { label: '本地图片目录', hint: '由主人主动填写完整路径。留空不扫描；不读取桌面或聊天截图' }, f.text('diary.rich.folder', { placeholder: '留空不读取本地图库' })),

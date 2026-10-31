@@ -10,9 +10,9 @@ after(() => rmSync(root, { recursive: true, force: true }))
 
 const { normalize } = await import('../src/core/config.js')
 const { createQzone } = await import('../src/features/qzone.js')
-const { collectSources, localPictures } = await import('../src/modules/diary/sources.js')
+const { collectSources, localPictures, clip } = await import('../src/modules/diary/sources.js')
 const { createDiaryAssets, downloadImage } = await import('../src/modules/diary/assets.js')
-const { createDiaryMedia, parseDraft, reselectPictures } = await import('../src/modules/diary/media.js')
+const { createDiaryMedia, parseDraft, reselectPictures, withCredits } = await import('../src/modules/diary/media.js')
 const { readJson, writeJson, dataDir } = await import('../src/core/store.js')
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=', 'base64')
 const log = { info() {}, warn() {} }
@@ -46,11 +46,46 @@ function fixture({ rich = {}, config = {}, reply, modules = {} } = {}) {
 
 test('新配图默认关闭，目录为空；异常配置不会自动启用或推断路径', () => {
   const cfg = normalize({})
-  assert.deepEqual(cfg.diary.rich, { enabled: false, stickers: true, browsing: false, local: false, folder: '', maxImages: 2 })
+  assert.deepEqual(cfg.diary.rich, { enabled: false, stickers: false, browsing: false, local: false, folder: '', maxImages: 2 })
   assert.equal(normalize({ diary: { rich: null } }).diary.rich.enabled, false)
   assert.equal(normalize({ diary: { rich: { enabled: 'true', folder: '../private', maxImages: 99 } } }).diary.rich.enabled, false)
   assert.equal(normalize({ diary: { rich: { folder: '../private' } } }).diary.rich.folder, '')
   assert.equal(cfg.diary.attachImage, true, '原有配图默认值不变')
+})
+
+test('开启图文日记不会默认读取群聊收藏的表情，需主人明确开启表情来源', () => {
+  let reads = 0
+  const api = { use: (id) => id === 'stickers' ? { library: () => {
+    reads++
+    return { items: [{ file: 'collected-test.png', md5: 'test', from: 'collect', name: '开心', tags: ['开心'] }] }
+  } } : undefined }
+  const cfg = normalize({ diary: { rich: { enabled: true } } })
+  assert.equal(cfg.diary.rich.stickers, false)
+  assert.equal(collectSources(api, cfg.diary.rich).pictures.length, 0)
+  assert.equal(reads, 0)
+  const optIn = normalize({ diary: { rich: { enabled: true, stickers: true } } })
+  assert.equal(collectSources(api, optIn.diary.rich).pictures.length, 1)
+  assert.equal(reads, 1)
+  assert.equal(normalize({ diary: { rich: { stickers: 'true' } } }).diary.rich.stickers, false)
+})
+
+test('素材备注按码点截断并清理孤立代理字符，不将半个 emoji 带入正文', () => {
+  assert.equal(clip('  猫😀尾\n巴  ', 2), '猫😀')
+  assert.equal(clip('😀🌸', 1), '😀')
+  assert.equal(clip('坏\ud83d字', 10), '坏字')
+  const now = Date.now()
+  const title = '画'.repeat(69) + '😀尾巴'
+  const author = '人'.repeat(39) + '🌸尾巴'
+  const api = { use: (id) => id === 'huashi6' ? { state: () => ({ history: [{
+    kind: 'read', at: now, ok: true, item: { id: '123456', title, author, cover: 'https://example.com/image.png' },
+  }] }) } : undefined }
+  const pool = collectSources(api, { browsing: true }, [], now)
+  assert.equal(pool.pictures[0].title, '画'.repeat(69) + '😀')
+  assert.equal(pool.pictures[0].author, '人'.repeat(39) + '🌸')
+  const text = withCredits('今天浏览了画作。', pool.pictures)
+  assert.equal(text.isWellFormed(), true)
+  assert.ok(text.includes('😀》'))
+  assert.ok(text.includes('🌸\nhttps://'))
 })
 
 test('关闭图文功能时完全走原有写作与配图流程', async () => {

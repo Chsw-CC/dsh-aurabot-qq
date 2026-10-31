@@ -105,7 +105,7 @@ export const DEFAULTS = {
     minGapMinutes: 180,
     attachImage: true, // 写日记时配一张图（优先今天她画的，其次今天收的表情包）
     // 可选图文日记：关着时沿用原来的聊天摘录和配图流程；本地目录必须由主人填写。
-    rich: { enabled: false, stickers: true, browsing: false, local: false, folder: '', maxImages: 2 },
+    rich: { enabled: false, stickers: false, browsing: false, local: false, folder: '', maxImages: 2 },
     archive: { enabled: false, folder: '' }, // 已有公开浏览图按浏览日期归档；必须由主人指定输出目录
     minChars: 60,
     maxChars: 140,
