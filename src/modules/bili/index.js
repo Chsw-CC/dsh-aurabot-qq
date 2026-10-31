@@ -41,10 +41,10 @@ export default {
           properties: { link: str('B 站链接或 BV 号'), text: str('评论内容') },
           required: ['link', 'text'],
           execute: async ({ link, text }) => {
-            // 这里的「仅主人」包括主人在群里开口，比改资料类权限宽一点，保持原来的行为
+            // 评论权限：off / owner / all；owner 模式要求本轮所有说话人都是主人
             const perm = permOf(api.config(), 'biliComment')
             if (perm === 'off') return { ok: false, message: '这个操作在面板里关掉了' }
-            if (perm === 'owner' && !hub.turnHasOwner(sessionId)) return { ok: false, message: '只有主人能让我去发评论' }
+            if (perm === 'owner' && !hub.turnSendersAllOwner(sessionId)) return { ok: false, message: '只有主人能让我去发评论' }
             return bili.comment(String(link || ''), String(text || ''))
           },
         }),
@@ -55,7 +55,7 @@ export default {
           properties: { query: str('可选：视频标题关键词，或想看的内容') },
           required: [],
           execute: async ({ query }) => {
-            if (!hub.turnHasOwner(sessionId)) return { ok: false, message: '截图只给主人看' }
+            if (!hub.turnSendersAllOwner(sessionId)) return { ok: false, message: '截图只给主人看' }
             return bili.sendShot({ chatId: chat.chatId, query: String(query || '') })
           },
         }),
@@ -65,7 +65,7 @@ export default {
           properties: { query: str('可选，按视频标题筛选') },
           required: [],
           execute: async ({ query }) => {
-            if (!hub.turnHasOwner(sessionId)) return { ok: false, message: '截图只给主人看' }
+            if (!hub.turnSendersAllOwner(sessionId)) return { ok: false, message: '截图只给主人看' }
             return bili.listShots(String(query || ''))
           },
         }),
