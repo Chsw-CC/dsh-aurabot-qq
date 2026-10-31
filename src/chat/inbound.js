@@ -132,8 +132,7 @@ export function parseMessageEvent(event, selfId, { faceName } = {}) {
 /** 偷表情的尺寸兜底（拿到字节、宽高之后再判）。 */
 export function stickerSizeOk({ width, height, bytes }, limits = {}) {
   const maxSide = limits.maxSide ?? 520
-  const maxBytes = limits.maxBytes ?? 1.5 * 1024 * 1024
-  if (!(bytes > 0) || bytes > maxBytes) return false
+  if (!(bytes > 0)) return false
   if (!(width > 0) || !(height > 0)) return true // 读不出尺寸就只看体积
   if (width > maxSide || height > maxSide) return false
   const r = width / height
