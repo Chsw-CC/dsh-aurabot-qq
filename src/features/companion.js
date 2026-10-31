@@ -2,6 +2,7 @@
 
 import { dataDir, readJson, writeJson } from '../core/store.js'
 import { askModel } from '../core/llm.js'
+import { cleanText, clipText } from '../core/text.js'
 
 // ---------------- 心情 ----------------
 // 0~100，基线 60。聊天里的话按关键词推一推，随时间按半衰期回到基线。
@@ -87,6 +88,7 @@ export function createMood({ getConfig, dsh, log }) {
     const before = current()
     s.value = Math.max(5, Math.min(100, before + d))
     s.at = Date.now()
+    reason = cleanText(reason)
     s.reason = reason
     // 保留 200 条：20 条只够两小时，出问题查不到原因（实测需要回溯半天以上）
     s.history = [{ at: Date.now(), from: before, to: Math.round(s.value), reason }, ...(s.history || [])].slice(0, 200)
@@ -108,7 +110,7 @@ export function createMood({ getConfig, dsh, log }) {
       const d0 = scoreText(text)
       if (!d0) return
       const d = Math.round(d0 * (direct ? 1 : 0.3) * (owner ? 1.5 : 1))
-      nudge(d, `${who || '有人'}说「${String(text).slice(0, 20)}」`)
+      nudge(d, `${who || '有人'}说「${clipText(text, 20)}」`)
     },
     /**
      * 模型判心情（可选）：一轮聊完，看「对方说的 + 她回的」判断心情往哪走。没把握的（confidence < 0.6）不算。
@@ -143,7 +145,7 @@ export function createMood({ getConfig, dsh, log }) {
       const label = moodLabel(v)
       const style = MOOD_STYLE[label]
       if (!style) return ''
-      return `（你现在${label}${s.reason ? '，因为' + s.reason : ''}。这会自然地影响你说话：${style}。不用说出来自己心情如何。）`
+      return `（你现在${label}${s.reason ? '，因为' + cleanText(s.reason) : ''}。这会自然地影响你说话：${style}。不用说出来自己心情如何。）`
     },
   }
 }

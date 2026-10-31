@@ -29,6 +29,7 @@ import { parseCommand, runCommand, createMutes, commandList } from './chat/comma
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
 import { createModules, API_VERSION } from './core/modules.js'
 import { createCommunity } from './core/community.js'
+import { cleanText } from './core/text.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
 import { BUILTINS } from './modules/index.js'
@@ -69,7 +70,7 @@ export function apply(ctx) {
   seedPersonas()
 
   // ---------- 人格与规则：通过提示词变量注入到 Aurabot 的两个 preset ----------
-  const variable = (n, fn) => ctx.effect(() => ctx.systemPrompt.variable(n, fn), `aurabot: 变量 ${n}`)
+  const variable = (n, fn) => ctx.effect(() => ctx.systemPrompt.variable(n, (...args) => cleanText(fn(...args))), `aurabot: 变量 ${n}`)
   const rulesOpts = (kind) => (mods ? { off: mods.builtinOff(), extra: mods.rules(kind) } : {})
   // 扩展模块能整段改写人格和规则（同步：提示词变量不能等）
   const rewrite = (event, text, ...args) => { const r = mods ? mods.filterSync(event, text, ...args) : text; return typeof r === 'string' ? r : r === null ? '' : text }

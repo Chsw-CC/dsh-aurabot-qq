@@ -21,6 +21,7 @@ import { defaultModel, pickReasoningEffort, canSeeImages, modelVision } from '..
 import { resolveChatModel } from './chat-model.js'
 import { createFaces, textToSegments, stripFaceTags, speakableText } from './faces.js'
 import { expandMentions, hasMention } from './mentions.js'
+import { cleanContent, cleanText } from '../core/text.js'
 import { createRecentMedia } from './recent-media.js'
 import { createTitleFilter } from './title-filter.js'
 import { isDefiniteFailure } from '../onebot/client.js'
@@ -473,7 +474,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
               if (t) parts.push(t)
             } catch (error) {}
           }
-          return parts.join('\n\n')
+          return cleanText(parts.join('\n\n'))
         },
       }))
     } catch (error) {
@@ -1605,6 +1606,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       const lines = earlier.map((x) => `${new Date(x.at).toTimeString().slice(0, 5)} 你：${x.text}`)
       content = [{ type: 'text', text: `【你之前在这个聊天里主动说过（是在别处安排下发的，这里的人都看到了）】\n${lines.join('\n')}\n` }, ...content]
     }
+    content = cleanContent(content)
     // 这一轮还在跑、这句是排队给下一轮的：额外记到 pendingSenders，等上一轮 turn/end 时接过去（#90）
     // ⚠ 不能用 busy：flush 一开始就把 busy 置上了，否则会把这一批自己的说话人塞进下一轮，
     //    主人和群友混在一起会让「仅主人」判断误拒（sticker-owner 回归抓到过）。
@@ -1744,7 +1746,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       wait.result.catch(() => {})
       result = wait.result
       // followup 可能等整轮结束才返回；超时后保留标记，直到收到 turn/end 或取消并归档。
-      Promise.resolve().then(() => { assertActive(); return agent.followup({ id: randomUUID(), role: 'user', content: [{ type: 'text', text: prompt }], source: { kind: SOURCE_KIND, speaker: { role: 'none' } } }) }).catch((error) => {
+      Promise.resolve().then(() => { assertActive(); return agent.followup({ id: randomUUID(), role: 'user', content: [{ type: 'text', text: cleanText(prompt) }], source: { kind: SOURCE_KIND, speaker: { role: 'none' } } }) }).catch((error) => {
         if (st.system === system && system.timedOutAt == null) { st.system = null; system.reject(error) }
       })
     } finally {

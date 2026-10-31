@@ -1,6 +1,7 @@
 // 直接问一次宿主模型（不进会话）：给表情起备注、心情判断、记忆提炼等后台小任务用。
 
 import { randomUUID } from 'node:crypto'
+import { cleanText } from './text.js'
 
 export function defaultModel(dsh, cfg) {
   if (cfg?.model?.provider && cfg?.model?.model) return { provider: cfg.model.provider, model: cfg.model.model }
@@ -145,7 +146,7 @@ export async function askModel (dsh, o) {
   if (!llm || typeof llm.stream !== 'function') throw new Error('宿主没有 llm 服务')
   const t = defaultModel(dsh, o.cfg)
   if (!t) throw new Error('拿不到默认模型')
-  let content = [{ type: 'text', text: o.text }]
+  let content = [{ type: 'text', text: cleanText(o.text) }]
   for (const img of o.images || []) content.push({ type: 'image', data: img.data, mediaType: img.mediaType, name: 'aurabot-image' })
   // 图片要先交给 DSH 的附件服务登记成附件块，模型适配层只认附件
   if (content.length > 1) {
@@ -157,7 +158,7 @@ export async function askModel (dsh, o) {
   const base = {
     provider: t.provider,
     model: t.model,
-    system: o.system || '',
+    system: cleanText(o.system || ''),
     messages,
     maxTokens: o.maxTokens || 600,
     temperature: o.temperature ?? 0.3,
