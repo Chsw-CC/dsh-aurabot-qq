@@ -25,7 +25,7 @@ export function isStickerSegment(seg) {
  * @returns {{
  *   kind: 'private'|'group', chatId: string, userId: string, groupId: string,
  *   nickname: string, role: string, messageId: string, text: string,
- *   mentioned: boolean, replyId: string, images: object[], stickers: object[], records: object[],
+ *   mentioned: boolean, replyId: string, images: object[], stickers: object[], records: object[], files: object[],
  * }}
  */
 export function parseMessageEvent(event, selfId, { faceName } = {}) {
@@ -42,6 +42,7 @@ export function parseMessageEvent(event, selfId, { faceName } = {}) {
   const stickers = []
   const records = []
   const forwards = [] // 合并转发的 id
+  const files = []
   for (const seg of segmentsOf(event)) {
     const d = seg.data || {}
     switch (seg.type) {
@@ -82,6 +83,7 @@ export function parseMessageEvent(event, selfId, { faceName } = {}) {
         break
       case 'file':
         texts.push(`[文件 ${d.name || d.file || ''}]`)
+        files.push({ name: String(d.name || d.file || ''), size: Number(d.size ?? d.file_size) || 0, id: String(d.id ?? d.file_id ?? ''), url: String(d.url || ''), hash: String(d.file_hash || ''), busid: Number(d.busid) || 0 })
         break
       case 'json':
         texts.push(cardText(d.data))
@@ -120,6 +122,7 @@ export function parseMessageEvent(event, selfId, { faceName } = {}) {
     stickers,
     records,
     forwards,
+    files,
   }
 }
 
@@ -179,6 +182,14 @@ export function cardText(raw) {
   } catch (error) {
     return '[卡片消息]'
   }
+}
+
+/** GIF 有几帧：数图形控制扩展块，够判断是不是动图。 */
+export function gifFrames(buf) {
+  if (!buf || buf[0] !== 0x47 || buf[1] !== 0x49) return 0
+  let n = 0
+  for (let i = 13; i + 2 < buf.length; i++) if (buf[i] === 0x21 && buf[i + 1] === 0xf9 && buf[i + 2] === 4) n++
+  return n
 }
 
 export function mimeOf(buf) {

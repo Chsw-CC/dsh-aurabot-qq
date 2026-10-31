@@ -9,7 +9,7 @@ import { appendFileSync, mkdirSync, readFileSync, existsSync, readdirSync, statS
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { dataDir, readJson, writeJson } from '../core/store.js'
-import { parseMessageEvent } from './inbound.js'
+import { parseMessageEvent, gifFrames } from './inbound.js'
 import { parseReply, bubbleDelay, wantsVoice } from './reply.js'
 import { decideGroupReply, policyFor, topicRelevance } from './group-policy.js'
 import { checkAllowed, levelFor, presetFor, isOwner } from './access.js'
@@ -82,6 +82,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const ENGAGE_MS = 3 * 60_000
   const groupNames = new Map()
   const recentMedia = createRecentMedia({ log }) // 最近发来的图片和表情，短期落盘恢复
+  const recentFiles = new Map() // chatId → 最近发来的文件
   // 「她挑 / 只听主人的」：这一轮收到的表情先按会话记着，她想收时凭编号来取。
   // 落盘存一份 —— 只在内存里的话，DSH 一重启就什么都没有了，她只好绕路（拷附件 + qq_add_sticker）。
   const stickerStash = new Map() // chatId → { at, segs: [seg] }
@@ -1072,6 +1073,12 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return text ? String(text).trim() : ''
   }
 
+  // 动图交给模型时通常只看到一帧，这里如实告诉她，免得她把动图说成静态图。
+  const animatedNote = (imgs) => {
+    const n = imgs.filter((img) => img.frames > 1).length
+    return n ? `（其中 ${n} 张是动图，你看到的可能只是其中一帧，别说它是静态的，也别编没看到的动作）` : ''
+  }
+
   async function imagesOf(msg) {
     const out = []
     for (const seg of [...msg.stickers, ...msg.images].slice(0, 4)) {
@@ -1079,7 +1086,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
         const buf = await segmentBytes(seg, onebot, { maxBytes: 8 * 1024 * 1024 })
         const mime = mimeOf(buf)
         if (!mime.startsWith('image/')) continue
-        out.push({ data: buf.toString('base64'), mediaType: mime })
+        out.push({ data: buf.toString('base64'), mediaType: mime, frames: gifFrames(buf) })
       } catch (error) {
         log.debug('图片下载失败：', error.message)
       }
@@ -1132,6 +1139,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     if (!allowed.allowed) {
       log.debug(`忽略 ${msg.chatId}（${allowed.reason}）`)
       return
+    }
+    // 文件先记着，她要读的时候用 qq_read_file 取
+    if (msg.files.length) {
+      const list = (recentFiles.get(msg.chatId) || []).concat(msg.files.map((f) => ({ ...f, userId: msg.userId, at: now })))
+      recentFiles.set(msg.chatId, list.slice(-8))
     }
     // 最近发来的图片 / 表情记几张（「把刚才那张存下来」时用）
     if (msg.stickers.length || msg.images.length) {
@@ -1258,6 +1270,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
         log.debug(`模型不支持看图：${msg.chatId} 的 ${imgs.length} 张图换成文字提示`)
       } else {
         for (let i = 0; i < imgs.length; i++) content.push({ type: 'image', data: imgs[i].data, mediaType: imgs[i].mediaType, name: `qq-${msg.messageId}-${i + 1}` })
+        if (animatedNote(imgs)) content.push({ type: 'text', text: animatedNote(imgs) })
       }
     }
     // 引用里的图 / 表情包也给她看（最多 2 张，总数不超过 4；看不了图的模型靠上面的文字说明）
@@ -1300,6 +1313,21 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   const lastSpeaker = new Map() // chatId → 群里最近一段最后说话的人
   const pokeAt = new Map() // chatId → 上次处理戳一戳的时间
   /** 有人戳了她：当成一条对她说的话交给她（群里也一定回），同一个聊天 20 秒内只算一次。 */
+  /** 群文件是单独的通知，不是消息：转成一条文件消息走正常流程（白名单、头衔过滤都照旧）。 */
+  async function onGroupFile(ev) {
+    if (disposed || !ev.file?.name) return
+    let nickname = String(ev.user_id)
+    try {
+      const m = await onebot.call('get_group_member_info', { group_id: ev.group_id, user_id: ev.user_id }, { timeoutMs: 5000 })
+      nickname = String(m?.card || m?.nickname || nickname)
+    } catch (error) {}
+    await onMessage({
+      post_type: 'message', message_type: 'group', sub_type: 'normal', self_id: ev.self_id, group_id: ev.group_id, user_id: ev.user_id, message_id: 0,
+      sender: { user_id: ev.user_id, nickname },
+      message: [{ type: 'file', data: { name: ev.file.name, size: ev.file.size, id: ev.file.id, busid: ev.file.busid } }],
+    })
+  }
+
   async function onPoke(ev) {
     if (disposed) return
     const self = String(ev.self_id || selfId || getConfig().botQQ)
@@ -1340,6 +1368,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       if ((await canSeeImages(dsh, getConfig())) === false) return
       const imgs = await imagesOf(msg)
       for (let i = 0; i < imgs.length && p.images.length < 4; i++) p.images.push({ type: 'image', data: imgs[i].data, mediaType: imgs[i].mediaType, name: `qq-${msg.messageId}-${i + 1}` })
+      if (animatedNote(imgs)) p.images.push({ type: 'text', text: animatedNote(imgs) })
     } catch (error) {}
   }
 
@@ -1888,11 +1917,13 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     modelFor: targetModel,
     /** 这个聊天最近发来的图片 / 表情（新的在后面），可选只要某人发的 */
     recentMedia: (chatId, userId) => recentMedia.get(chatId, userId),
+    recentFiles: (chatId) => recentFiles.get(chatId) || [],
     stickerOf,
     capture,
     simulateTurn,
     onMessage,
     onPoke,
+    onGroupFile,
     onSessionEvent,
     deliver,
     sendText,

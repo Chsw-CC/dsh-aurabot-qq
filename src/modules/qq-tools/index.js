@@ -1,6 +1,7 @@
 // 内置模块：基础 QQ 工具。翻聊天记录；主人私聊里还能让她主动给别人发消息、发文件。
 
 import { defineTool, str, int } from '../../tools/tools.js'
+import { readQqFile } from '../../features/qq-file.js'
 import { parseMessageEvent } from '../../chat/inbound.js'
 
 /** 真实网关对不在群里的人也回成功、角色写 member，只有 join_time 是空的：没有它就不算成员。 */
@@ -120,6 +121,22 @@ export default {
           if (!hits.length) return { ok: true, message: `搜了 ${from.length} 天的流水，没找到「${words.join(' ')}」。` }
           const tail = hits.slice(-40)
           return { ok: true, message: `找到 ${hits.length} 条，最近 ${tail.length} 条：\n${tail.join('\n')}` }
+        },
+      }))
+      // 读文件：别人发来的内容不可信，只有主人开口才读
+      tools.push(defineTool({
+        name: 'qq_read_file',
+        description: '读这个聊天里别人发来的文本文件（txt、md、json、日志、代码等，2MB 以内）。只有主人让你看的时候才用。name 填文件名，不填就读最新的一个。',
+        properties: { name: str('可选：文件名，不填就读最新的') },
+        required: [],
+        execute: async ({ name }) => {
+          if (level !== 'full' && !hub.turnHasOwner?.(sessionId)) return { ok: false, message: '只有主人让看时才能读文件' }
+          const list = hub.recentFiles(chat.chatId)
+          if (!list.length) return { ok: false, message: '这个聊天最近没收到文件（重启后记录会清空）' }
+          const want = String(name || '').trim()
+          const file = want ? list.findLast((f) => f.name === want) || list.findLast((f) => f.name.includes(want)) : list.at(-1)
+          if (!file) return { ok: false, message: `没找到「${want}」，最近的文件有：${list.map((f) => f.name).join('、')}` }
+          return readQqFile({ onebot, chat, file })
         },
       }))
       // 发文件：只给主人私聊（full）挂，群里/别人没有本机文件能力；面板「聊天」页可以关掉

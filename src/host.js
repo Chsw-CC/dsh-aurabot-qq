@@ -163,6 +163,8 @@ export function apply(ctx) {
       }
     } else if (ev.post_type === 'notice' && ev.notice_type === 'notify' && ev.sub_type === 'poke') {
       hub.onPoke(ev).catch((error) => log.error('处理戳一戳出错：', error.message))
+    } else if (ev.post_type === 'notice' && ev.notice_type === 'group_upload') {
+      hub.onGroupFile(ev).catch((error) => log.error('处理群文件出错：', error.message))
     }
   }
   const onebot = createOneBotClient({
