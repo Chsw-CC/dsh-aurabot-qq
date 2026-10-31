@@ -71,6 +71,7 @@ export function createDiaryAssets(dir, { download = downloadImage } = {}) {
     }
     return {
       id: store(bytes), sourceId: picture.id, kind: picture.kind,
+      sourceKind: picture.sourceKind || '',
       caption: picture.caption, title: picture.title || '', author: picture.author || '',
       platform: picture.platform || '', url: picture.url || '',
     }

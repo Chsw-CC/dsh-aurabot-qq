@@ -13,7 +13,7 @@ export function parseDraft(output, candidates, maxChars) {
 }
 
 export function withCredits(text, images) {
-  const credits = images.filter((image) => image.kind === 'browsing').map((image) =>
+  const credits = images.filter((image) => image.kind === 'browsing' || image.sourceKind === 'browsing').map((image) =>
     `配图摘自${image.platform}《${image.title}》${image.author ? ' · ' + image.author : ''}\n${image.url}`)
   return [text, ...new Set(credits)].join('\n\n')
 }
@@ -71,5 +71,8 @@ export function createDiaryMedia(api, { assets = createDiaryAssets(api.dataDir('
       media: (result.media || []).map((image) => ({ ...image, src: '/aurabot/api/diary/image?id=' + image.id })),
     }
   }
-  return { compose, view, image: assets.read, dispose: () => { stopped = true } }
+  return {
+    compose, view, image: assets.read,
+    dispose() { stopped = true },
+  }
 }

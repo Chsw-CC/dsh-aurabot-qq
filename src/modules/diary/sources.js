@@ -1,7 +1,7 @@
 // 图文日记只取表情、公开浏览记录和主人明确指定的目录，不读取聊天流水或私人记忆。
 
 import { createHash } from 'node:crypto'
-import { lstatSync, readdirSync, realpathSync } from 'node:fs'
+import { lstatSync, readdirSync, realpathSync, readFileSync } from 'node:fs'
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { stickerPath } from '../../features/stickers.js'
 import { loadShots, shotPath } from '../../bili/shots.js'
@@ -23,6 +23,30 @@ export function imageFolder(value) {
 export function insideFolder(root, file) {
   const rel = relative(root, file)
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+}
+
+// 只信任本模块的归档格式；重新校验链接，避免手改 sidecar 把登录参数带回空间。
+function archiveMetadata(file) {
+  try {
+    const sidecar = file + '.json'
+    const stat = lstatSync(sidecar)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024) return {}
+    const metadata = JSON.parse(readFileSync(sidecar, 'utf8'))
+    if (metadata.schema !== 1 || metadata.kind !== 'browsing') return {}
+    const url = new URL(metadata.url)
+    let id = ''
+    if (metadata.platform === 'B站') id = /^\/video\/(BV\w{10})\/?$/.exec(url.pathname)?.[1]
+    if (metadata.platform === '抖音') id = /^\/(?:video|note)\/(\d{5,25})\/?$/.exec(url.pathname)?.[1]
+    if (metadata.platform === '小红书') id = /^\/explore\/([a-f0-9]{24})\/?$/i.exec(url.pathname)?.[1]
+    if (metadata.platform === '触站') id = /^\/draw\/(\d{1,15})\/?$/.exec(url.pathname)?.[1]
+    if (metadata.platform === '淘宝') id = url.searchParams.get('id')
+    const canonical = sourceLink(metadata.platform, { id })
+    if (!canonical || new URL(canonical).hostname !== url.hostname) return {}
+    const title = clip(metadata.title, 70)
+    const author = clip(metadata.author, 40)
+    if (!title || !publicText(title + author)) return {}
+    return { sourceKind: 'browsing', platform: metadata.platform, title, author, url: canonical, caption: '浏览归档：' + metadata.platform + '《' + title + '》' }
+  } catch (error) { return {} }
 }
 
 /** 最多三层、1500 个目录项、60 张图；空目录配置不会扫描任何地方。 */
@@ -47,7 +71,7 @@ export function localPictures(folder) {
         if (!stat.isFile() || !/\.(png|jpe?g|gif|webp)$/i.test(file) || stat.size <= 0 || stat.size > 8 * 1024 * 1024) continue
         const caption = clip(basename(file, extname(file)), 60)
         if (!publicText(caption)) continue
-        files.push({ id: 'local:' + sourceId(file), kind: 'local', src: file, root, caption, at: stat.mtimeMs })
+        files.push({ id: 'local:' + sourceId(file), kind: 'local', src: file, root, caption, at: stat.mtimeMs, ...archiveMetadata(file) })
       } catch (error) { /* 文件被移动或无法读取时跳过。 */ }
     }
   }

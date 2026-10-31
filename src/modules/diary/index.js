@@ -7,6 +7,7 @@ import { pickDiaryImage } from '../../features/diary-image.js'
 import { defineTool, str } from '../../tools/tools.js'
 import { mimeOf } from '../../chat/inbound.js'
 import { createDiaryMedia } from './media.js'
+import { createDiaryArchive } from './archive.js'
 
 export default {
   id: 'diary',
@@ -23,7 +24,10 @@ export default {
     }
     const memory = api.lazy('memory')
     const media = createDiaryMedia(api)
+    const archive = createDiaryArchive(api)
     api.onDispose(() => media.dispose())
+    api.onDispose(() => archive.dispose())
+    api.every(300_000, () => archive.collect(), '归档公开浏览图')
     const qzone = createQzone({
       getConfig: api.config, onebot, hub, log: api.log,
       pickImage: () => pickDiaryImage(),
@@ -72,6 +76,8 @@ export default {
 
     api.route('/diary/run', async (req) => qzone.writeDiary({ visibility: (await http.body(req)).visibility }))
     api.route('/diary/preview', panelAction(async (req) => media.view(await qzone.writeDiary({ visibility: (await http.body(req)).visibility, preview: true }))))
+    api.route('/diary/archive', async () => archive.state())
+    api.route('/diary/archive/collect', panelAction(async () => archive.collect()))
     api.route('/diary/image', async (req, res) => {
       try {
         const bytes = media.image(http.query(req).id)
