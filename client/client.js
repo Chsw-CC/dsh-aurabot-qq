@@ -2643,11 +2643,23 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
     function Market({ st, toast, reload, go }) {
       const [data, setData] = useState(null)
       const [busy, setBusy] = useState('')
+      const [prog, setProg] = useState(null)
       const [q, setQ] = useState('')
       const [show, setShow] = useState('all')
       const [cat, setCat] = useState('')
       const load = (force) => get('/modules/community' + (force ? '?force=1' : '')).then(setData)
       useEffect(() => { load() }, [])
+      useEffect(() => {
+        if (!busy) { setProg(null); return }
+        const t = setInterval(() => get('/modules/community/progress').then((r) => setProg(r.progress || null)), 300)
+        return () => clearInterval(t)
+      }, [busy])
+      const percent = prog && prog.total ? Math.min(100, Math.round(prog.received / prog.total * 100)) : 0
+      const progText = (word) => {
+        if (!prog) return word + '中…'
+        if (prog.stage === 'install') return '正在安装…'
+        return '下载中 ' + (prog.total ? percent + '%' : Math.round(prog.received / 1024) + ' KB')
+      }
       const done = async (r) => {
         toast(r.message, r.ok ? 'ok' : 'err')
         await load()
@@ -2686,9 +2698,11 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           h('p', { className: 'ab-desc', style: { margin: '8px 0' } }, m.description),
           capText(m).length ? h('div', { className: 'ab-small ab-muted', style: { marginBottom: 10 } }, '会用到：' + capText(m).join('、')) : null,
           note ? h('div', { className: 'ab-note warn', style: { marginBottom: 10 } }, note) : null,
+          busy === m.id && percent ? h('div', { style: { height: 4, borderRadius: 2, background: 'var(--ab-foam-2)', marginBottom: 10, overflow: 'hidden' } },
+            h('div', { style: { height: '100%', width: percent + '%', background: 'var(--ab-sea)', transition: 'width .2s' } })) : null,
           h('div', { className: 'ab-flex', style: { marginTop: 'auto' } },
-            !m.installed && !m.foreign && !m.delisted ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? '安装中…' : '安装') : null,
-            m.update ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? '更新中…' : '更新') : null,
+            !m.installed && !m.foreign && !m.delisted ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? progText('安装') : '安装') : null,
+            m.update ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? progText('更新') : '更新') : null,
             settings ? h(Btn, { small: true, onClick: settings }, '去设置') : null,
             m.installed ? h(Btn, { small: true, kind: 'ghost', disabled: Boolean(busy), onClick: () => remove(m) }, '卸载') : null))
       }

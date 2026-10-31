@@ -974,6 +974,7 @@ export function apply(ctx) {
   route('/modules/tutorial', async () => {
     try { return { ok: true, text: readFileSync(join(ROOT, 'docs', 'MODULE-TUTORIAL.md'), 'utf8') } } catch (error) { return { ok: false, message: '教程文件不见了' } }
   })
+  route('/modules/community/progress', async () => ({ ok: true, progress: community.progress() }))
   route('/modules/community/install', async (req) => {
     const b = await readBody(req)
     return { ...(await community.install(String(b.id || ''), { confirmReplace: b.confirmReplace === true })), modules: mods.status() }
