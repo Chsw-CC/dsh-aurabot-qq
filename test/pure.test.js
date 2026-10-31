@@ -162,7 +162,7 @@ test('stickerSizeOk 尺寸兜底', () => {
   assert.equal(stickerSizeOk({ width: 240, height: 240, bytes: 50_000 }), true)
   assert.equal(stickerSizeOk({ width: 1080, height: 1080, bytes: 50_000 }), false)
   assert.equal(stickerSizeOk({ width: 300, height: 100, bytes: 50_000 }), false)
-  assert.equal(stickerSizeOk({ width: 240, height: 240, bytes: 2_000_000 }), false)
+  assert.equal(stickerSizeOk({ width: 240, height: 240, bytes: 2_000_000 }), true, '大小不限')
 })
 
 test('imageSize 读 PNG 宽高', () => {
