@@ -8,8 +8,29 @@ export function parseDraft(output, candidates, maxChars) {
   const text = String(draft?.text || '').replace(/\|\|\|/g, ' ').replace(/<[^>]*>/g, '').trim()
   if (!text || text === '[沉默]' || text.length > maxChars + 20 || !publicText(text)) throw new Error('日记正文为空、过长或含敏感信息，本次未发布')
   const ids = [...new Set(Array.isArray(draft.imageIds) ? draft.imageIds : [])]
-  if (ids.some((id) => !candidates.some((picture) => picture.id === id))) throw new Error('草稿引用了未授权的配图，本次未发布')
-  return { text, selected: ids.map((id) => candidates.find((picture) => picture.id === id)) }
+  const selected = ids.map((id) => candidates.find((picture) => picture.id === id)).filter(Boolean)
+  return { text, selected, unmatchedCount: ids.length - selected.length }
+}
+
+/** 只替换错误编号，不替模型主动留空的日记加图，也不接受候选外的路径或网址。 */
+export function reselectPictures(draft, candidates, maxImages) {
+  const selected = draft.selected.slice(0, maxImages)
+  const remaining = Math.min(draft.unmatchedCount, maxImages - selected.length)
+  if (remaining <= 0) return selected
+  const words = draft.text.match(/[\p{Script=Han}]{2,}|[a-z]{3,}/giu) || []
+  const score = (picture) => {
+    const caption = String(picture.caption || '').toLowerCase()
+    let value = picture.recent ? -10 : 0
+    for (const word of words) {
+      const text = word.toLowerCase()
+      if (caption.includes(text)) value += 4
+      else for (let i = 0; i < text.length - 1; i++) if (caption.includes(text.slice(i, i + 2))) value++
+    }
+    return value
+  }
+  const alternatives = candidates.filter((picture) => !selected.some((item) => item.id === picture.id))
+    .sort((a, b) => score(b) - score(a) || Number(b.kind === 'sticker') - Number(a.kind === 'sticker') || b.at - a.at)
+  return [...selected, ...alternatives.slice(0, remaining)]
 }
 
 export function withCredits(text, images) {
@@ -53,11 +74,17 @@ export function createDiaryMedia(api, { assets = createDiaryAssets(api.dataDir('
     const draft = parseDraft(output, candidates, cfg.maxChars)
     const images = []
     const warnings = pool.folderError ? [pool.folderError] : []
-    for (const picture of draft.selected.slice(0, maxImages)) {
+    const selected = reselectPictures(draft, candidates, maxImages)
+    if (draft.unmatchedCount) {
+      warnings.push(selected.length > draft.selected.slice(0, maxImages).length
+        ? '部分配图编号未匹配，已从本轮候选中重新选图。'
+        : selected.length ? '部分配图编号未匹配，已保留正文和有效配图。' : '配图编号未匹配，本轮没有可用的替代图，已保留正文并跳过配图。')
+    }
+    for (const picture of selected) {
       try {
         const image = await assets.materialize(picture)
         if (!images.some((item) => item.id === image.id)) images.push(image)
-      } catch (error) { warnings.push('有一张配图未能读取，已跳过。') }
+      } catch (error) { warnings.push('有一张配图未能读取，已跳过，正文仍保留。') }
       canPublish(snapshot)
     }
     return {

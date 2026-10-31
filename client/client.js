@@ -1615,11 +1615,21 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
         h(Card, { title: '写过的日记', right: h('div', { className: 'ab-flex' },
           data && data.next ? h('span', { className: 'ab-muted ab-small' }, '下一篇大约 ' + data.next) : null,
           h(Btn, { small: true, kind: 'ghost', title: '刷新空间状态', onClick: load }, h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, 'aria-hidden': true }, h('path', { d: 'M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17' }))),
-          h(Btn, { small: true, kind: 'primary', onClick: async () => { toast('她在写了…'); try { const r = await post('/diary/run', {}); toast(r.ok ? (r.dryRun ? '写好了（试运行，没真发）' : '发出去了') : r.message) } catch (e) { toast(e.message) } finally { await load() } } }, '现在写一篇')) },
+          h(Btn, { small: true, kind: 'primary', onClick: async () => {
+            toast('她在写了…')
+            try {
+              const r = await post('/diary/run', {})
+              const message = r.dryRun ? '写好了（试运行，没真发）' : '发出去了'
+              toast(r.ok ? [message, ...(r.warnings || [])].join('；') : r.message)
+            } catch (e) { toast(e.message) }
+            finally { await load() }
+          } }, '现在写一篇')) },
           !data ? h(Empty, { icon: '⏳', text: '加载中…' }) : !data.items || data.items.length === 0 ? h(Empty, { icon: '📔', text: '还没写过日记。' }) :
             h('div', { className: 'ab-list' }, data.items.map((d, i) => h('div', { key: i, className: 'ab-li' },
               h('div', { className: 'meta' }, new Date(d.at).toLocaleString(), h('br'), d.deletedAt ? '已从空间删除' : d.dryRun ? '试运行' : d.ok ? (AUDIENCE_LABEL[d.visibility] || '已发布') : '失败'),
-              h('div', { className: 'body' }, d.text, d.error ? h('div', { className: 'ab-small', style: { color: 'var(--ab-err)' } }, d.error) : null),
+              h('div', { className: 'body' }, d.text,
+                (d.warnings || []).map((warning, index) => h('div', { key: index, className: 'ab-small', style: { color: 'var(--ab-warn)' } }, warning)),
+                d.error ? h('div', { className: 'ab-small', style: { color: 'var(--ab-err)' } }, d.error) : null),
               d.tid && !d.deletedAt ? h(Btn, { small: true, kind: 'ghost', onClick: async () => { if (!confirm('从 QQ 空间删除这条说说？')) return; try { const r = await post('/qzone/delete', { tid: d.tid }); toast(r.message) } catch (e) { toast(e.message) } finally { await load() } } }, '从空间删除') : null))),
         ),
         social,

@@ -12,7 +12,7 @@ const { normalize } = await import('../src/core/config.js')
 const { createQzone } = await import('../src/features/qzone.js')
 const { collectSources, localPictures } = await import('../src/modules/diary/sources.js')
 const { createDiaryAssets, downloadImage } = await import('../src/modules/diary/assets.js')
-const { createDiaryMedia, parseDraft } = await import('../src/modules/diary/media.js')
+const { createDiaryMedia, parseDraft, reselectPictures } = await import('../src/modules/diary/media.js')
 const { readJson, writeJson, dataDir } = await import('../src/core/store.js')
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXioAAAAASUVORK5CYII=', 'base64')
 const log = { info() {}, warn() {} }
@@ -114,10 +114,63 @@ test('公开浏览只读取成功的公开作品，不取私信、搜索结果�
 
 test('模型只能从授权候选编号选图，不能注入路径或任意 URL', () => {
   for (const id of ['C:\\private.png', 'https://example.com/secret.png', '../../private']) {
-    assert.throws(() => parseDraft(JSON.stringify({ text: '今天真好。', imageIds: [id] }), [], 140), /未授权/)
+    const draft = parseDraft(JSON.stringify({ text: '今天真好。', imageIds: [id] }), [], 140)
+    assert.equal(draft.text, '今天真好。')
+    assert.equal(draft.unmatchedCount, 1)
+    assert.deepEqual(draft.selected, [])
   }
   assert.throws(() => parseDraft('{"text":', [], 140), /不完整/)
   assert.throws(() => parseDraft(JSON.stringify({ text: '密码是123456789', imageIds: [] }), [], 140), /敏感/)
+})
+
+test('编号混合匹配：保留有效配图，只从候选补选且不重复、不超过上限', () => {
+  const candidates = [
+    { id: 'valid', caption: '一朵云', kind: 'browsing', at: 1 },
+    { id: 'other', caption: '吃饭', kind: 'local', at: 2 },
+    { id: 'cloud', caption: '云朵插画', kind: 'local', at: 3 },
+  ]
+  const draft = parseDraft(JSON.stringify({ text: '今天很喜欢云朵插画。', imageIds: ['valid', 'old-id', 'valid'] }), candidates, 140)
+  assert.deepEqual(reselectPictures(draft, candidates, 2).map((picture) => picture.id), ['valid', 'cloud'])
+  assert.deepEqual(reselectPictures(draft, candidates, 1).map((picture) => picture.id), ['valid'])
+  const empty = parseDraft(JSON.stringify({ text: '今天很好。', imageIds: [] }), candidates, 140)
+  assert.deepEqual(reselectPictures(empty, candidates, 4), [], '主动不配图时不强行选图')
+})
+
+test('错误编号会重新选图，真实发布仍保留正文、配图和清楚的提示', async () => {
+  const folder = join(root, 'reselect')
+  mkdirSync(folder)
+  writeFileSync(join(folder, '云朵插画.png'), PNG)
+  const f = fixture({ rich: { local: true, folder }, reply: JSON.stringify({ text: '今天很喜欢云朵插画。', imageIds: ['过期编号'] }) })
+  const result = await f.qzone.writeDiary()
+  assert.equal(result.ok, true)
+  assert.equal(result.images, 1)
+  assert.equal(f.calls[0].params.content, '今天很喜欢云朵插画。')
+  assert.match(result.warnings[0], /编号未匹配.*重新选图/)
+  assert.doesNotMatch(result.warnings.join(''), /隐私|未授权/)
+  assert.equal(f.qzone.history()[0].warnings[0], result.warnings[0])
+})
+
+test('没有替代候选时仍发布正文，不读取模型注入的路径或网址', async () => {
+  const f = fixture({ reply: JSON.stringify({ text: '今天安静地收好一点开心。', imageIds: ['C:\\private.png', 'http://127.0.0.1/private'] }) })
+  const result = await f.qzone.writeDiary()
+  assert.equal(result.ok, true)
+  assert.equal(result.images, 0)
+  assert.equal(f.calls.length, 1)
+  assert.equal(f.calls[0].params.images, undefined)
+  assert.match(result.warnings[0], /没有可用的替代图.*保留正文/)
+  assert.equal(f.memories.length, 1)
+})
+
+test('重新挑选的图片损坏时只跳过图片，不影响整篇日记发布', async () => {
+  const folder = join(root, 'bad-replacement')
+  mkdirSync(folder)
+  writeFileSync(join(folder, '坏图片.png'), 'invalid image bytes')
+  const f = fixture({ rich: { local: true, folder }, reply: JSON.stringify({ text: '今天心情很好。', imageIds: ['old-id'] }) })
+  const result = await f.qzone.writeDiary()
+  assert.equal(result.ok, true)
+  assert.equal(result.images, 0)
+  assert.equal(f.calls[0].params.content, '今天心情很好。')
+  assert.match(result.warnings.join(''), /未能读取.*正文仍保留/)
 })
 
 test('图片缓存只接受摘要编号和有效图片，不开放任意本地路径', async () => {
