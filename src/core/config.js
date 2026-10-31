@@ -201,7 +201,8 @@ export const DEFAULTS = {
     idleMinutes: 40,
     minIntervalMinutes: 60,
     maxIntervalMinutes: 180,
-    maxPerDay: 4,
+    maxPerDay: 20, // 每个人每天最多几次；留空就是 20
+    allow: [], // 主动搭话白名单：除主人外还会主动找谁（QQ 号）
     nudge: true, // 她问了你一句、你一直没回时，偶尔轻轻追一句
     awakeFrom: 8,
     awakeTo: 23,
@@ -251,6 +252,7 @@ function deepMerge(base, over) {
   return out
 }
 
+const BIG = 1e6 // 没有天然上限的数值：只防手滑填出离谱值，不当真限制
 const num = (v, d, lo, hi) => {
   const n = Number(v)
   return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d
@@ -286,54 +288,56 @@ export function normalize(raw) {
   if (!isObj(c.security)) c.security = {}
   c.security.dangerConfirm = bool(c.security.dangerConfirm, false)
   c.files.enabled = bool(c.files.enabled, true)
-  c.files.maxMB = num(c.files.maxMB, 50, 1, 2048)
+  c.files.maxMB = num(c.files.maxMB, 50, 1, BIG)
   c.files.dirs = (Array.isArray(c.files.dirs) ? c.files.dirs : String(c.files.dirs || '').split(/[\n,，;；]+/))
     .map((s) => String(s).trim()).filter((s) => /^([a-zA-Z]:[\\/]|\/)/.test(s)).slice(0, 20)
   const g = c.group
   g.wakeWords = (Array.isArray(g.wakeWords) ? g.wakeWords : String(g.wakeWords || '').split(/[\s,，]+/)).map((s) => String(s).trim()).filter(Boolean)
   g.interjectChance = num(g.interjectChance, 0.15, 0, 1)
-  g.cooldownSec = num(g.cooldownSec, 90, 0, 86400)
-  g.maxPerHour = num(g.maxPerHour, 6, 0, 120)
-  g.minRecentMessages = num(g.minRecentMessages, 3, 0, 100)
-  g.activeWindowSec = num(g.activeWindowSec, 300, 30, 86400)
+  g.cooldownSec = num(g.cooldownSec, 90, 0, BIG)
+  g.maxPerHour = num(g.maxPerHour, 6, 0, BIG)
+  g.minRecentMessages = num(g.minRecentMessages, 3, 0, BIG)
+  g.activeWindowSec = num(g.activeWindowSec, 300, 1, BIG)
   if (!Array.isArray(g.quietHours) || g.quietHours.length !== 2) g.quietHours = DEFAULT_GROUP_POLICY.quietHours
   g.quietHours = g.quietHours.map((h) => num(h, 0, 0, 23))
   if (!isObj(g.overrides)) g.overrides = {}
   if (!isObj(g.ownerBrief)) g.ownerBrief = { enabled: false, lines: 12, groups: [] }
   g.ownerBrief.enabled = bool(g.ownerBrief.enabled, false)
-  g.ownerBrief.lines = num(g.ownerBrief.lines, 12, 1, 30)
+  g.ownerBrief.lines = num(g.ownerBrief.lines, 12, 1, BIG)
   g.ownerBrief.groups = qqList(g.ownerBrief.groups)
   c.voice.autoChance = num(c.voice.autoChance, 0.15, 0, 1)
-  c.voice.autoMaxChars = num(c.voice.autoMaxChars, 80, 1, 500)
+  c.voice.autoMaxChars = num(c.voice.autoMaxChars, 80, 1, BIG)
   c.stickers.autoChance = num(c.stickers.autoChance, 0.35, 0, 1)
   c.stickers.faces = c.stickers.faces !== false
   c.stickers.collectMode = ['ask', 'auto', 'owner'].includes(c.stickers.collectMode) ? c.stickers.collectMode : 'auto'
-  c.stickers.maxPerHour = num(c.stickers.maxPerHour, 20, 0, 200)
-  c.stickers.maxLibrary = num(c.stickers.maxLibrary, 300, 20, 2000)
-  c.diary.timesPerDay = num(c.diary.timesPerDay, 2, 0, 6)
+  c.stickers.maxPerHour = num(c.stickers.maxPerHour, 20, 0, BIG)
+  c.stickers.maxLibrary = num(c.stickers.maxLibrary, 300, 1, BIG)
+  c.diary.timesPerDay = num(c.diary.timesPerDay, 2, 0, 48)
   c.diary.windowStart = hhmm(c.diary.windowStart, '10:00')
   c.diary.windowEnd = hhmm(c.diary.windowEnd, '23:30')
-  c.diary.minGapMinutes = num(c.diary.minGapMinutes, 180, 0, 1440)
+  c.diary.minGapMinutes = num(c.diary.minGapMinutes, 180, 0, BIG)
   c.diary.attachImage = bool(c.diary.attachImage, true)
   if (!isObj(c.diary.rich)) c.diary.rich = { ...DEFAULTS.diary.rich }
   for (const key of ['enabled', 'stickers', 'browsing', 'local']) c.diary.rich[key] = bool(c.diary.rich[key], DEFAULTS.diary.rich[key])
   c.diary.rich.folder = typeof c.diary.rich.folder === 'string' ? c.diary.rich.folder.trim() : ''
   if (c.diary.rich.folder && !/^([a-zA-Z]:[\\/]|\/)/.test(c.diary.rich.folder)) c.diary.rich.folder = ''
   delete c.diary.rich.cards
-  c.diary.rich.maxImages = Math.round(num(c.diary.rich.maxImages, 2, 1, 4))
+  c.diary.rich.maxImages = Math.round(num(c.diary.rich.maxImages, 2, 1, 9))
   if (!isObj(c.diary.archive)) c.diary.archive = { ...DEFAULTS.diary.archive }
   c.diary.archive.enabled = bool(c.diary.archive.enabled, false)
   c.diary.archive.folder = typeof c.diary.archive.folder === 'string' ? c.diary.archive.folder.trim() : ''
   if (c.diary.archive.folder && !/^([a-zA-Z]:[\\/]|\/)/.test(c.diary.archive.folder)) c.diary.archive.folder = ''
-  c.diary.minChars = num(c.diary.minChars, 60, 10, 500)
-  c.diary.maxChars = num(c.diary.maxChars, 140, 20, 1000)
+  c.diary.minChars = num(c.diary.minChars, 60, 1, BIG)
+  c.diary.maxChars = num(c.diary.maxChars, 140, 1, BIG)
   c.diary.visibility = DIARY_AUDIENCES.includes(c.diary.visibility) ? c.diary.visibility : 'all'
   c.diary.audienceQQs = qqList(c.diary.audienceQQs).slice(0, 200).join('\n')
-  c.speakUp.idleMinutes = num(c.speakUp.idleMinutes, 40, 5, 1440)
+  c.speakUp.idleMinutes = num(c.speakUp.idleMinutes, 40, 1, BIG)
   c.speakUp.nudge = bool(c.speakUp.nudge, true)
-  c.speakUp.minIntervalMinutes = num(c.speakUp.minIntervalMinutes, 90, 5, 1440)
-  c.speakUp.maxIntervalMinutes = Math.max(c.speakUp.minIntervalMinutes, num(c.speakUp.maxIntervalMinutes, 240, 5, 2880))
-  c.speakUp.maxPerDay = num(c.speakUp.maxPerDay, 3, 0, 20)
+  c.speakUp.minIntervalMinutes = num(c.speakUp.minIntervalMinutes, 90, 1, BIG)
+  c.speakUp.maxIntervalMinutes = Math.max(c.speakUp.minIntervalMinutes, num(c.speakUp.maxIntervalMinutes, 240, 1, BIG))
+  // 留空就是 20，上限不封顶
+  c.speakUp.maxPerDay = c.speakUp.maxPerDay === '' || c.speakUp.maxPerDay == null ? 20 : num(c.speakUp.maxPerDay, 20, 0, BIG)
+  c.speakUp.allow = [...new Set((Array.isArray(c.speakUp.allow) ? c.speakUp.allow : []).map((q) => String(q).trim()).filter((q) => /^\d{5,}$/.test(q)))]
   const q = c.qzoneSocial
   q.enabled = bool(q.enabled, true)
   q.replyOwn = bool(q.replyOwn, true)
@@ -341,31 +345,31 @@ export function normalize(raw) {
   q.like = bool(q.like, true)
   q.friendChance = num(q.friendChance, 0.3, 0, 1)
   q.ownerChance = num(q.ownerChance, 0.7, 0, 1)
-  q.maxPerDay = num(q.maxPerDay, 8, 0, 50)
-  q.intervalMin = num(q.intervalMin, 30, 5, 1440)
-  c.mood.halfLifeHours = num(c.mood.halfLifeHours, 3, 0.25, 72)
-  c.mood.base = num(c.mood.base, 60, 10, 90)
+  q.maxPerDay = num(q.maxPerDay, 8, 0, BIG)
+  q.intervalMin = num(q.intervalMin, 30, 1, BIG)
+  c.mood.halfLifeHours = num(c.mood.halfLifeHours, 3, 0.1, BIG)
+  c.mood.base = num(c.mood.base, 60, 0, 100)
   c.mood.judge = bool(c.mood.judge, false)
   for (const k of ['tts', 'image', 'song', 'asr']) c.local[k] = bool(c.local[k], false)
   const b = c.bili
   Object.assign(b, splitBiliCookie(b))
   for (const k of ['enabled', 'autoBrowse', 'comment', 'reply', 'shareToOwner', 'like', 'vision']) b[k] = bool(b[k], DEFAULTS.bili[k])
-  b.visionFrames = Math.round(num(b.visionFrames, 6, 2, 12))
+  b.visionFrames = Math.round(num(b.visionFrames, 6, 1, 100))
   b.ffmpegPath = String(b.ffmpegPath || '').trim()
   b.shotChance = num(b.shotChance, 0.35, 0, 1)
-  b.shotLibrary = Math.round(num(b.shotLibrary, 300, 20, 2000))
-  b.intervalHours = num(b.intervalHours, 4, 1, 48)
-  b.maxRunsPerDay = num(b.maxRunsPerDay, 3, 0, 24)
-  b.perRun = num(b.perRun, 3, 1, 8)
-  b.minViews = num(b.minViews, 5000, 0, 1e8)
-  b.maxAgeDays = num(b.maxAgeDays, 60, 0, 3650)
-  b.maxCommentsPerDay = num(b.maxCommentsPerDay, 3, 0, 50)
-  b.maxRepliesPerDay = num(b.maxRepliesPerDay, 6, 0, 100)
+  b.shotLibrary = Math.round(num(b.shotLibrary, 300, 1, BIG))
+  b.intervalHours = num(b.intervalHours, 4, 0.1, BIG)
+  b.maxRunsPerDay = num(b.maxRunsPerDay, 3, 0, BIG)
+  b.perRun = num(b.perRun, 3, 1, BIG)
+  b.minViews = num(b.minViews, 5000, 0, BIG * 1e6)
+  b.maxAgeDays = num(b.maxAgeDays, 60, 0, BIG)
+  b.maxCommentsPerDay = num(b.maxCommentsPerDay, 3, 0, BIG)
+  b.maxRepliesPerDay = num(b.maxRepliesPerDay, 6, 0, BIG)
   b.keywords = (Array.isArray(b.keywords) ? b.keywords : String(b.keywords || '').split(/[\n,，]+/)).map((x) => String(x).trim()).filter(Boolean).slice(0, 30)
   const hb = c.heybox
   hb.shareToOwner = bool(hb.shareToOwner, true)
   hb.shareBias = ['stingy', 'normal', 'proactive'].includes(hb.shareBias) ? hb.shareBias : 'normal'
-  hb.shareDaily = Math.round(num(hb.shareDaily, 3, 0, 10))
+  hb.shareDaily = Math.round(num(hb.shareDaily, 3, 0, BIG))
   hb.cookie = String(hb.cookie || '').trim()
   hb.offPeakOnly = bool(hb.offPeakOnly, false)
   hb.peakStartAM = num(hb.peakStartAM, 9, 0, 23)
@@ -376,24 +380,24 @@ export function normalize(raw) {
   const d = c.douyin
   d.enabled = bool(d.enabled, false)
   d.autoBrowse = bool(d.autoBrowse, true)
-  d.intervalHours = num(d.intervalHours, 4, 1, 48)
-  d.maxRunsPerDay = num(d.maxRunsPerDay, 3, 0, 24)
-  d.perRun = num(d.perRun, 5, 1, 10)
-  d.maxWatchPerDay = num(d.maxWatchPerDay, 30, 0, 200)
-  d.dwellMin = num(d.dwellMin, 8, 3, 120)
-  d.dwellMax = Math.max(d.dwellMin, num(d.dwellMax, 40, 3, 300))
+  d.intervalHours = num(d.intervalHours, 4, 0.1, BIG)
+  d.maxRunsPerDay = num(d.maxRunsPerDay, 3, 0, BIG)
+  d.perRun = num(d.perRun, 5, 1, BIG)
+  d.maxWatchPerDay = num(d.maxWatchPerDay, 30, 0, BIG)
+  d.dwellMin = num(d.dwellMin, 8, 1, BIG)
+  d.dwellMax = Math.max(d.dwellMin, num(d.dwellMax, 40, 1, BIG))
   d.browserPath = String(d.browserPath || '').trim()
   d.shareTo = ['douyin', 'qq', 'both'].includes(d.shareTo) ? d.shareTo : 'douyin'
   d.ownerDm = bool(d.ownerDm, true)
-  d.dmPollMinutes = num(d.dmPollMinutes, 3, 1, 60)
+  d.dmPollMinutes = num(d.dmPollMinutes, 3, 1, BIG)
   d.shareBias = ['stingy', 'normal', 'proactive'].includes(d.shareBias) ? d.shareBias : d.shareBias === 'off' ? 'stingy' : 'proactive'
   if (!isObj(d.caps)) d.caps = {}
   if (raw?.douyin?.caps?.share == null && raw?.douyin?.caps?.shareOwner != null) d.caps.share = raw.douyin.caps.shareOwner // 1.0.x 叫 shareOwner
-  d.caps = { like: num(d.caps.like, 30, 0, 300), comment: num(d.caps.comment, 3, 0, 30), share: num(d.caps.share, 5, 0, 30), atOwner: num(d.caps.atOwner, 3, 0, 30) }
+  d.caps = { like: num(d.caps.like, 30, 0, BIG), comment: num(d.caps.comment, 3, 0, BIG), share: num(d.caps.share, 5, 0, BIG), atOwner: num(d.caps.atOwner, 3, 0, 30) }
   if (!isObj(d.owner)) d.owner = {}
   d.owner = Object.fromEntries(['input', 'secUid', 'uid', 'nickname', 'confirmedInput'].map((k) => [k, String(d.owner[k] ?? '').trim().slice(0, 400)]))
   if (!isObj(d.gate)) d.gate = {}
-  d.gate = { maxWritesPerDay: num(d.gate.maxWritesPerDay, 40, 1, 500), minWriteGapSec: num(d.gate.minWriteGapSec, 20, 0, 600), newAccountDays: num(d.gate.newAccountDays, 3, 0, 30) }
+  d.gate = { maxWritesPerDay: num(d.gate.maxWritesPerDay, 40, 1, BIG), minWriteGapSec: num(d.gate.minWriteGapSec, 20, 0, BIG), newAccountDays: num(d.gate.newAccountDays, 3, 0, 30) }
   // 1.0.x 的 douyin-im / 私信相关设置都不用了
   for (const k of ['atOwnerOnLikeChance', 'minimize', 'socialInterruptBrowse', 'replyPollMinutes']) delete d[k]
 
@@ -409,8 +413,8 @@ export function normalize(raw) {
   if (!c.memory.consolidateTimes.length) c.memory.consolidateTimes = ['04:00', '16:00']
   c.chat = c.chat || {}
   c.chat.seedHistory = bool(c.chat.seedHistory, false)
-  c.chat.seedHistoryCount = num(c.chat.seedHistoryCount, 20, 1, 50)
-  c.memory.recallCount = num(c.memory.recallCount, 6, 0, 20)
+  c.chat.seedHistoryCount = num(c.chat.seedHistoryCount, 20, 1, BIG)
+  c.memory.recallCount = num(c.memory.recallCount, 6, 0, BIG)
   c.memory.keepChatlogDays = num(c.memory.keepChatlogDays, 0, -1, 3650)
   c.memory.mergeGroups = bool(c.memory.mergeGroups, false)
   g.interests = (Array.isArray(g.interests) ? g.interests : String(g.interests || '').split(/[\s,，]+/)).map((s) => String(s).trim()).filter(Boolean)
@@ -420,15 +424,15 @@ export function normalize(raw) {
   // 看白名单里别的群：off 关 / private 主人和私聊里的群成员（默认）/ group 群里的成员也行
   g.crossRead = ['off', 'group'].includes(g.crossRead) ? g.crossRead : 'private'
   c.merge.enabled = bool(c.merge.enabled, true)
-  c.merge.waitSec = num(c.merge.waitSec, 2.5, 0, 30)
-  c.merge.maxSec = Math.max(c.merge.waitSec, num(c.merge.maxSec, 8, 0, 60))
-  c.merge.groupWaitSec = num(c.merge.groupWaitSec, 5, 0, 60)
-  c.merge.groupMaxSec = Math.max(c.merge.groupWaitSec, num(c.merge.groupMaxSec, 15, 0, 120))
+  c.merge.waitSec = num(c.merge.waitSec, 2.5, 0, BIG)
+  c.merge.maxSec = Math.max(c.merge.waitSec, num(c.merge.maxSec, 8, 0, BIG))
+  c.merge.groupWaitSec = num(c.merge.groupWaitSec, 5, 0, BIG)
+  c.merge.groupMaxSec = Math.max(c.merge.groupWaitSec, num(c.merge.groupMaxSec, 15, 0, BIG))
   c.titleFilter.enabled = bool(c.titleFilter.enabled, true)
   c.titleFilter.groups = qqList(c.titleFilter.groups) // 和群白名单同一套规则
   c.titleFilter.title = String(c.titleFilter.title ?? '').replace(/[​-‍﻿]/g, '').trim().slice(0, 30) || '大肥鱼'
-  g.burstMax = num(g.burstMax, 8, 1, 50)
-  g.burstWindowSec = num(g.burstWindowSec, 120, 10, 3600)
+  g.burstMax = num(g.burstMax, 8, 1, BIG)
+  g.burstWindowSec = num(g.burstWindowSec, 120, 1, BIG)
   if (!['auto', 'edge', 'windows', 'cosyvoice', 'gptsovits', 'http'].includes(c.voice.engine)) c.voice.engine = 'auto'
   c.voice.songVoice = String(c.voice.songVoice || '').slice(0, 120)
   c.voice.songPitch = Math.max(-24, Math.min(24, Math.round(Number(c.voice.songPitch) || 0)))
@@ -470,9 +474,9 @@ export function normalize(raw) {
   c.song.enabled = bool(c.song.enabled, false)
   c.song.ownerOnly = bool(c.song.ownerOnly, true)
   c.song.pitch = num(c.song.pitch, 0, -24, 24)
-  c.song.maxVoiceSec = num(c.song.maxVoiceSec, 120, 15, 600)
-  c.song.vocalVolume = num(c.song.vocalVolume, 1, 0.2, 2)
-  c.song.instVolume = num(c.song.instVolume, 0.8, 0.1, 2)
+  c.song.maxVoiceSec = num(c.song.maxVoiceSec, 120, 1, BIG)
+  c.song.vocalVolume = num(c.song.vocalVolume, 1, 0, 10)
+  c.song.instVolume = num(c.song.instVolume, 0.8, 0, 10)
   if (!['auto', 'head'].includes(c.song.clipStart)) c.song.clipStart = 'auto'
   // 老配置：'' 是以前的默认（没开），改成自动；tuna 是以前的「用镜像」
   c.song.pypiMirror = { '': 'auto', tuna: 'cn' }[c.song.pypiMirror] ?? c.song.pypiMirror

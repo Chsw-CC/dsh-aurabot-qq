@@ -164,10 +164,10 @@ test('面板接口：libraryShots / shotFileOf / deleteShot 串起来', async ()
   assert.equal(bili.shotFileOf(file), '', '删掉后路径也没了')
 })
 
-test('config：shotLibrary 默认 300，越界会被夹住', () => {
+test('config：shotLibrary 默认 300，太小会被夹住', () => {
   assert.equal(normalize({}).bili.shotLibrary, 300)
-  assert.equal(normalize({ bili: { shotLibrary: 5000 } }).bili.shotLibrary, 2000)
-  assert.equal(normalize({ bili: { shotLibrary: 1 } }).bili.shotLibrary, 20)
+  assert.equal(normalize({ bili: { shotLibrary: 5000 } }).bili.shotLibrary, 5000)
+  assert.equal(normalize({ bili: { shotLibrary: 0 } }).bili.shotLibrary, 1)
   assert.equal(normalize({ bili: { shotLibrary: 'abc' } }).bili.shotLibrary, 300)
 })
 

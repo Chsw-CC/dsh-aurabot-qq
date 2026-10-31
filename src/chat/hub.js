@@ -189,6 +189,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
   let selfId = ''
   let lastChatAt = 0
   let lastOwnerChatAt = 0
+  const lastPrivateAt = new Map() // QQ 号 → 最后一次和这个人私聊的时间（主动搭话白名单用）
   let lastBotToOwner = { at: 0, text: '' } // 她在主人私聊里最后说的话
 
   function bump(k) {
@@ -823,6 +824,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     // 不是这个聊天自己那一轮发的（主人在私聊里让她去群里说、扩展模块代发）：记下来，下次这个聊天交给她时告诉她自己说过什么
     if (!opts.own) saidElsewhere.set(chatId, [...(saidElsewhere.get(chatId) || []), { at: Date.now(), text: said.slice(0, 300) }].slice(-5))
     lastChatAt = Date.now()
+    if (chatId.startsWith('private:')) lastPrivateAt.set(chatId.slice(8), Date.now())
     if (chatId === `private:${cfg.ownerQQ}`) lastBotToOwner = { at: Date.now(), text: items.filter((i) => i.kind === 'text' || i.kind === 'voice').map((i) => i.value).join('\n') }
     onActivity?.({ kind: 'out', chatId, reply: text, userText: opts.userText || '' })
     return { missedAt, failed: failures.length, errors: failures }
@@ -1282,6 +1284,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     logChat(msg.chatId, msg.nickname, text, msg.userId)
     lastChatAt = now
     if (msg.kind === 'private' && msg.userId === cfg.ownerQQ) lastOwnerChatAt = now
+    if (msg.kind === 'private') lastPrivateAt.set(msg.userId, now)
     onActivity?.({ kind: 'in', chatId: msg.chatId, userId: msg.userId, nickname: msg.nickname, text, direct: msg.kind === 'private' || msg.mentioned || mode === 'must', owner: isOwner(cfg, msg.userId) })
 
     enqueue({ chatId: msg.chatId, kind: msg.kind, userId: msg.userId, groupId: msg.groupId, nickname: msg.nickname }, content, msg.userId, wantsVoice(msg.text), mode, { stickerPick })
@@ -1966,6 +1969,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     stats: () => ({ ...stats }),
     get lastChatAt() { return lastChatAt },
     get lastOwnerChatAt() { return lastOwnerChatAt },
+    lastPrivateAt: (qq) => lastPrivateAt.get(String(qq)) || 0,
     get lastBotToOwner() { return lastBotToOwner },
     get selfId() { return selfId },
     groupNames,

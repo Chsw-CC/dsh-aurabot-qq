@@ -189,11 +189,47 @@ export function createSpeakUp({ getConfig, hub, log, isMuted }) {
     await hub.pushToSession({ chatId: `private:${cfg.ownerQQ}`, kind: 'private', userId: cfg.ownerQQ, nickname: owner }, [{ type: 'text', text: prompt }], '')
   }
 
+  /** 找白名单里的人：不提主人的事，这是她和对方自己的聊天。 */
+  async function fireFriend(qq) {
+    const idle = Math.round((Date.now() - (hub.lastPrivateAt?.(qq) || 0)) / 60000)
+    const angle = ANGLES[Math.floor(Math.random() * ANGLES.length)]
+    const prompt = `【系统提醒，不是对方说的话】你已经 ${idle > 600 ? '很久' : idle + ' 分钟'}没和这位朋友私聊了，想主动找对方说点什么。这次的由头：${angle}。只说你和对方之间的事，别提主人或别人的私事。`
+    log.info(`主动搭话（白名单 ${qq}）`)
+    await hub.pushToSession({ chatId: `private:${qq}`, kind: 'private', userId: qq, nickname: qq }, [{ type: 'text', text: prompt }], '')
+  }
+
+  /** 白名单：每人单独算次数和间隔，一分钟最多找一个人，不一口气群发。 */
+  async function tickFriends(cfg, s) {
+    const c = cfg.speakUp
+    const h = new Date().getHours()
+    if (!(h >= c.awakeFrom && h < c.awakeTo)) return false
+    const today = new Date().toDateString()
+    s.friends = s.friends || {}
+    for (const qq of c.allow || []) {
+      if (qq === String(cfg.ownerQQ) || isMuted?.(`private:${qq}`)) continue
+      const f = s.friends[qq] || (s.friends[qq] = {})
+      if (f.day !== today) Object.assign(f, { day: today, count: 0 })
+      if (!f.nextAt) schedule(f, c)
+      if (Date.now() - (hub.lastPrivateAt?.(qq) || 0) > c.idleMinutes * 60_000 && f.count < c.maxPerDay && Date.now() >= f.nextAt) {
+        f.count++
+        schedule(f, c)
+        save(s)
+        await fireFriend(qq)
+        return true
+      }
+    }
+    return false
+  }
+
   async function tick() {
     const cfg = getConfig()
     const c = cfg.speakUp
     if (!cfg.enabled || !c.enabled) return
-    if (isMuted?.(`private:${cfg.ownerQQ}`)) return // 主人在私聊里让她闭嘴了
+    if (isMuted?.(`private:${cfg.ownerQQ}`)) { // 主人在私聊里让她闭嘴了：只管主人这边，白名单照旧
+      const s = load()
+      if (!(await tickFriends(cfg, s))) save(s)
+      return
+    }
     const s = load()
     const today = new Date().toDateString()
     if (s.day !== today) Object.assign(s, { day: today, count: 0 })
@@ -218,7 +254,7 @@ export function createSpeakUp({ getConfig, hub, log, isMuted }) {
       await fire()
       return
     }
-    save(s)
+    if (!(await tickFriends(cfg, s))) save(s)
   }
 
   return { tick, fire, state: load }

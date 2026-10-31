@@ -266,7 +266,7 @@ test('聊天流水保留和新开关的配置规范化（#140 #141 #142 #143）'
   assert.equal(d.chat.seedHistory, false)
   assert.equal(d.group.ignoreAtOthers, false)
   assert.equal(normalize({ memory: { keepChatlogDays: -9 } }).memory.keepChatlogDays, -1)
-  assert.equal(normalize({ chat: { seedHistoryCount: 999 } }).chat.seedHistoryCount, 50)
+  assert.equal(normalize({ chat: { seedHistoryCount: 999 } }).chat.seedHistoryCount, 999)
 })
 
 test('@ 了别人时不算叫她，但只在开关打开时生效（#143）', async () => {
