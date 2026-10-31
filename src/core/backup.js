@@ -6,8 +6,9 @@
 import { open, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { crc32, deflateRawSync, inflateRawSync } from 'node:zlib'
-import { dirname, join, relative, resolve, sep } from 'node:path'
-import { dataDir } from './store.js'
+import { homedir } from 'node:os'
+import { dirname, join, parse, relative, resolve, sep } from 'node:path'
+import { dataDir, dshHome } from './store.js'
 
 const MANIFEST = 'aurabot-backup.json'
 const SCHEMA = 1
@@ -18,25 +19,42 @@ const STORE_EXT = /\.(png|jpe?g|gif|webp|mp3|mp4|m4a|ogg|opus|webm|zip|7z|rar|pt
 
 /**
  * 不进备份的东西。logs、缓存没有价值；edge-profile 是浏览器资料，登录态绑定这台电脑，
- * 带过去也用不了；sessions.json 指向本机 DSH 的会话，新电脑上没有这些会话。
+ * 带过去也用不了。市场模块不打包，恢复后按名单重新下载。
  */
-const SKIP = ['backups', '.restore', '.restore-pending.json', 'logs', 'tmp', 'voice-cache', 'archive-cache', 'sessions.json', 'douyin/edge-profile']
+const SKIP = ['backups', '.restore', '.restore-sessions', '.restore-pending.json', '.restore-modules.json', 'logs', 'tmp', 'voice-cache', 'archive-cache', 'douyin/edge-profile']
 const skipped = (rel) => SKIP.some((s) => rel === s || rel.startsWith(s + '/')) || rel.split('/').includes('node_modules') || rel.endsWith('.tmp')
 
 const backupsDir = () => dataDir('backups')
 const stageDir = () => dataDir('.restore')
+const sessionStage = () => dataDir('.restore-sessions')
 const pendingFile = () => dataDir('.restore-pending.json')
+const modulesFile = () => dataDir('.restore-modules.json')
+const SOURCE_FILE = '.aurabot-source.json'
+
+/** DSH 存会话的目录名：工作区路径里的分隔符换成 -，其余特殊字符写成 ~十六进制。 */
+export function sessionDirName(cwd) {
+  const body = [...String(cwd).replace(/[\\/]+$/, '')].map((ch) => {
+    if (/[\\/:]/.test(ch)) return '-'
+    return /[A-Za-z0-9._-]/.test(ch) ? ch : '~' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')
+  }).join('').replace(/-{2,}/g, '-')
+  return `--${body}--`
+}
 
 function safeName(name) {
   if (!name || name.includes('\\') || name.includes('\0') || name.startsWith('/') || /^[a-zA-Z]:/.test(name)) return false
   return name.split('/').every((seg) => seg && seg !== '.' && seg !== '..')
 }
 
-async function walk(root, rel = '', out = []) {
+async function walk(root, rel = '', out = [], market = []) {
   for (const item of await readdir(join(root, rel), { withFileTypes: true })) {
     const path = rel ? `${rel}/${item.name}` : item.name
     if (skipped(path) || item.isSymbolicLink()) continue
-    if (item.isDirectory()) await walk(root, path, out)
+    // 从市场装的模块：只记名字，恢复时下载最新版
+    if (item.isDirectory() && /^modules\/[^/]+$/.test(path) && existsSync(join(root, path, SOURCE_FILE))) {
+      market.push(item.name)
+      continue
+    }
+    if (item.isDirectory()) await walk(root, path, out, market)
     else if (item.isFile()) out.push(path)
   }
   return out
@@ -79,14 +97,18 @@ function centralHeader(entry) {
 }
 
 /** 打包数据目录，返回 { file, name, files, bytes, skipped }。 */
-export async function createBackup({ version = '', now = new Date(), onProgress = () => {} } = {}) {
+export async function createBackup({ version = '', workspaceDir = '', now = new Date(), onProgress = () => {} } = {}) {
   const root = dataDir()
   await mkdir(backupsDir(), { recursive: true })
   const stamp = now.toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 13)
   const name = `aurabot-backup-${stamp}.zip`
   const final = join(backupsDir(), name)
   const tmp = final + '.tmp'
-  const files = await walk(root)
+  const market = []
+  const files = await walk(root, '', [], market)
+  const sessionsRoot = workspaceDir ? join(dshHome(), 'sessions', sessionDirName(workspaceDir)) : ''
+  const sessionFiles = sessionsRoot && existsSync(sessionsRoot) ? await walk(sessionsRoot) : []
+  const total = files.length + sessionFiles.length
   const tooBig = []
   const fh = await open(tmp, 'w')
   const entries = []
@@ -106,22 +128,23 @@ export async function createBackup({ version = '', now = new Date(), onProgress 
   try {
     let done = 0
     let bytes = 0
-    for (const rel of files) {
-      const path = join(root, ...rel.split('/'))
+    const queue = [...files.map((rel) => [root, rel, 'data/']), ...sessionFiles.map((rel) => [sessionsRoot, rel, 'dsh-sessions/'])]
+    for (const [base, rel, prefix] of queue) {
+      const path = join(base, ...rel.split('/'))
       try {
         const st = await stat(path)
         if (st.size > MAX_FILE) { tooBig.push(rel); continue }
         const data = await readFile(path)
-        await put('data/' + rel, data, st.mtime)
+        await put(prefix + rel, data, st.mtime)
         bytes += data.length
       } catch (error) {
         if (error.message.includes('4GB')) throw error
         tooBig.push(rel) // 文件正好被占用或删掉：记下来告诉主人，不让整个备份失败
       }
-      onProgress({ done: ++done, total: files.length })
+      onProgress({ done: ++done, total })
       await new Promise((r) => setImmediate(r))
     }
-    const manifest = { schema: SCHEMA, app: 'aurabot', version, createdAt: now.toISOString(), dataDir: root, platform: process.platform, files: entries.length, bytes, skipped: tooBig }
+    const manifest = { schema: SCHEMA, app: 'aurabot', version, createdAt: now.toISOString(), dataDir: root, home: homedir(), workspaceDir, market, sessions: sessionFiles.length, platform: process.platform, files: entries.length, bytes, skipped: tooBig }
     await put(MANIFEST, Buffer.from(JSON.stringify(manifest, null, 2)), now)
     if (entries.length > 0xffff) throw new Error('文件太多，一个备份放不下')
     const central = Buffer.concat(entries.map(centralHeader))
@@ -134,7 +157,7 @@ export async function createBackup({ version = '', now = new Date(), onProgress 
     await fh.write(Buffer.concat([central, end]))
     await fh.close()
     await rename(tmp, final)
-    return { file: final, name, files: entries.length - 1, bytes, skipped: tooBig }
+    return { file: final, name, files: entries.length - 1, bytes, skipped: tooBig, market, sessions: sessionFiles.length }
   } catch (error) {
     await fh.close().catch(() => {})
     await rm(tmp, { force: true }).catch(() => {})
@@ -196,24 +219,28 @@ export async function stageRestore(path) {
     const manifest = JSON.parse((await readEntry(fh, head)).toString('utf8'))
     if (manifest.schema !== SCHEMA || manifest.app !== 'aurabot') throw new Error('这个备份的格式认不出来，先更新插件')
     await rm(stage, { recursive: true, force: true })
+    await rm(sessionStage(), { recursive: true, force: true })
     await rm(pendingFile(), { force: true })
-    const base = resolve(stage) + sep
     let files = 0
     for (const e of entries) {
       if (e.name === MANIFEST) continue
-      if (!e.name.startsWith('data/') || !safeName(e.name)) throw new Error(`备份里有不安全的路径：${e.name}`)
-      const rel = e.name.slice(5)
-      const dest = resolve(stage, ...rel.split('/'))
-      if (!dest.startsWith(base) || skipped(rel)) throw new Error(`备份里有不安全的路径：${e.name}`)
+      const isSession = e.name.startsWith('dsh-sessions/')
+      if ((!isSession && !e.name.startsWith('data/')) || !safeName(e.name)) throw new Error(`备份里有不安全的路径：${e.name}`)
+      const rel = e.name.slice(isSession ? 13 : 5)
+      const into = isSession ? sessionStage() : stage
+      const dest = resolve(into, ...rel.split('/'))
+      if (!dest.startsWith(resolve(into) + sep) || (!isSession && skipped(rel))) throw new Error(`备份里有不安全的路径：${e.name}`)
       await mkdir(dirname(dest), { recursive: true })
       await writeFile(dest, await readEntry(fh, e))
       files++
     }
     if (!existsSync(join(stage, 'config.json'))) throw new Error('备份里没有配置文件')
-    await writeFile(pendingFile(), JSON.stringify({ at: Date.now(), files, createdAt: manifest.createdAt, version: manifest.version, dataDir: manifest.dataDir, platform: manifest.platform }, null, 2))
-    return { ok: true, files, createdAt: manifest.createdAt, version: manifest.version, platform: manifest.platform, skipped: manifest.skipped || [] }
+    const { createdAt, version, dataDir: oldData, home, workspaceDir, platform, market = [], sessions = 0 } = manifest
+    await writeFile(pendingFile(), JSON.stringify({ at: Date.now(), files, createdAt, version, dataDir: oldData, home, workspaceDir, platform, market, sessions }, null, 2))
+    return { ok: true, files, createdAt, version, platform, market, sessions, skipped: manifest.skipped || [] }
   } catch (error) {
     await rm(stage, { recursive: true, force: true }).catch(() => {})
+    await rm(sessionStage(), { recursive: true, force: true }).catch(() => {})
     throw error
   } finally {
     await fh.close()
@@ -258,13 +285,49 @@ export function applyPendingRestore(now = Date.now()) {
     const esc = (s) => JSON.stringify(s).slice(1, -1)
     writeFileSync(config, readFileSync(config, 'utf8').replaceAll(esc(info.dataDir), esc(root)))
   }
+  restoreSessions(info, config)
+  if (info.market?.length) writeFileSync(modulesFile(), JSON.stringify(info.market))
   rmSync(stage, { recursive: true, force: true })
   rmSync(pending, { force: true })
   return files.length
 }
 
+/**
+ * 会话放回 DSH 按工作区路径分的目录。路径一样 DSH 才认得这些会话，所以尽量沿用原来的工作区路径：
+ * 在旧用户目录下的换成这台电脑的用户目录，盘符不存在才退回默认工作区。恢复不了的会话，hub 会新开一个。
+ */
+function restoreSessions(info, config) {
+  const stage = sessionStage()
+  if (!info.workspaceDir || !existsSync(stage)) return
+  let target = info.workspaceDir
+  if (info.home && target.toLowerCase().startsWith(info.home.toLowerCase())) target = homedir() + target.slice(info.home.length)
+  if (!existsSync(parse(target).root)) {
+    rmSync(stage, { recursive: true, force: true })
+    return
+  }
+  mkdirSync(target, { recursive: true })
+  if (existsSync(config)) writeFileSync(config, JSON.stringify({ ...JSON.parse(readFileSync(config, 'utf8')), workspaceDir: target }, null, 2))
+  const dir = join(dshHome(), 'sessions', sessionDirName(target))
+  for (const from of listFiles(stage)) {
+    const to = join(dir, relative(stage, from))
+    if (!existsSync(to)) move(from, to) // 这台电脑上已有的同名会话不碰
+  }
+  rmSync(stage, { recursive: true, force: true })
+}
+
+/** 恢复后还没下载的市场模块。 */
+export function pendingModules() {
+  try { return JSON.parse(readFileSync(modulesFile(), 'utf8')) } catch (error) { return [] }
+}
+
+export function setPendingModules(list) {
+  if (list.length) writeFileSync(modulesFile(), JSON.stringify(list))
+  else rmSync(modulesFile(), { force: true })
+}
+
 export function cancelRestore() {
   rmSync(stageDir(), { recursive: true, force: true })
+  rmSync(sessionStage(), { recursive: true, force: true })
   rmSync(pendingFile(), { force: true })
 }
 

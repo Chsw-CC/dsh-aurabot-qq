@@ -29,7 +29,7 @@ import { parseCommand, runCommand, createMutes, commandList } from './chat/comma
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
 import { createModules, API_VERSION } from './core/modules.js'
 import { createCommunity } from './core/community.js'
-import { applyPendingRestore, cancelRestore, createBackup, listBackups, pendingRestore, saveUpload, stageRestore } from './core/backup.js'
+import { applyPendingRestore, cancelRestore, createBackup, listBackups, pendingModules, pendingRestore, saveUpload, setPendingModules, stageRestore } from './core/backup.js'
 import { cleanText } from './core/text.js'
 import { createBridge } from './core/bridge.js'
 import { createDangerGuard } from './security/danger.js'
@@ -384,6 +384,16 @@ export function apply(ctx) {
   const booted = mods.boot()
   booted.then(() => injectPetPort()).catch(() => {})
   booted.then(() => (unloaded ? [] : community.migrate())).catch((error) => log.warn('搬到社区库的模块处理失败：', error.message))
+    .then(async () => {
+      // 恢复备份后把市场模块装回来；没装上的留着，下次启动再试
+      const left = []
+      for (const id of pendingModules()) {
+        if (unloaded) return
+        const r = await community.install(id)
+        if (!r.ok && !/自己的文件夹/.test(r.message)) { left.push(id); log.warn(`恢复模块「${id}」没装上，下次启动再试：`, r.message) }
+      }
+      if (!unloaded) setPendingModules(left)
+    }).catch((error) => log.warn('恢复模块失败：', error.message))
   booted.then(() => { if (!unloaded) bridge.refresh() })
 
   // ---------- 审批请求：DSH 要授权时把请求发到 QQ ----------
@@ -956,11 +966,11 @@ export function apply(ctx) {
     if (req.method !== 'POST' || req.headers?.['x-aurabot-backup'] !== '1') return { ok: false, message: '请从面板发起操作' }
     return run(req)
   }
-  route('/backup/state', async () => ({ ok: true, job: backupJob, list: listBackups(), pending: pendingRestore(), dir: dataDir('backups') }))
+  route('/backup/state', async () => ({ ok: true, job: backupJob, list: listBackups(), pending: pendingRestore(), modules: pendingModules(), dir: dataDir('backups') }))
   route('/backup/create', backupAction(async () => {
     if (backupJob?.running) return { ok: false, message: '上一个备份还在打包' }
     backupJob = { running: true, done: 0, total: 0 }
-    createBackup({ version: VERSION, onProgress: (p) => { backupJob = { ...backupJob, ...p } } })
+    createBackup({ version: VERSION, workspaceDir: workspaceDirOf(getConfig()), onProgress: (p) => { backupJob = { ...backupJob, ...p } } })
       .then((result) => { backupJob = { running: false, result }; log.info(`备份完成：${result.name}，${result.files} 个文件`) })
       .catch((error) => { backupJob = { running: false, error: error.message }; log.error('备份失败：', error.message) })
     return { ok: true, message: '开始打包了' }
