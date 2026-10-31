@@ -115,6 +115,7 @@ export const DEFAULTS = {
     enabled: false,
     sessdata: '', // B 站 Cookie 里的 SESSDATA（登录凭证）
     biliJct: '', // B 站 Cookie 里的 bili_jct（发评论要用）。两个都不填也能看视频，只是不能评论
+    ownerName: '', // 主人的 B 站昵称：她写 @主人 时 @ 这个号
     cookie: '', // 由上面两个拼出来给接口用；老配置的整串会自动拆到上面两个里
     autoBrowse: true, // 定时自己去刷
     intervalHours: 4, // 多久刷一轮

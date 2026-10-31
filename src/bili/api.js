@@ -180,12 +180,35 @@ export function createBiliApi({ getCookie, log, fetchImpl = fetch }) {
     return (d.replies || []).slice(0, limit).map((r) => ({ rpid: r.rpid, name: r.member?.uname, mid: r.mid, text: String(r.content?.message || '').slice(0, 200), like: r.like, replies: r.rcount || 0 }))
   }
 
+  /** 按昵称精确找用户，找不到返回 0。 */
+  async function findUser(name) {
+    await ensureBuvid()
+    const d = await req(await signed('https://api.bilibili.com/x/web-interface/wbi/search/type', { search_type: 'bili_user', keyword: name }))
+    return (d.result || []).find((u) => stripHtml(u.uname) === name)?.mid || 0
+  }
+
+  /** 把文字里的 @昵称 换成接口要的 { 昵称: mid }；光写文字 B 站不算 @。查不到的留作普通文字。 */
+  async function resolveAts(message) {
+    const names = [...new Set([...message.matchAll(/@([^\s@:：,，。!！?？]+)/g)].map((m) => m[1]))]
+    const map = {}
+    for (const name of names) {
+      try {
+        const mid = await findUser(name)
+        if (mid) map[name] = mid
+      } catch (error) { log?.debug?.(`查 B 站用户「${name}」失败：`, error.message) }
+    }
+    return { map, missed: names.filter((n) => !map[n]) }
+  }
+
   /** 发评论；root/parent 不传就是一级评论。要登录。 */
-  async function postComment(aid, message, { root, parent } = {}) {
+  async function postComment(aid, rawMessage, { root, parent } = {}) {
     const csrf = parseCookie(getCookie()).bili_jct
     if (!csrf) throw new Error('没登录 B 站（Cookie 里要有 bili_jct）')
-    const d = await req('https://api.bilibili.com/x/v2/reply/add', { method: 'POST', form: { type: 1, oid: aid, message, plat: 1, csrf, ...(root ? { root, parent: parent || root } : {}) } })
-    return { rpid: d.rpid }
+    const message = String(rawMessage).replace(/＠/g, '@')
+    const { map, missed } = await resolveAts(message)
+    const at = Object.keys(map)
+    const d = await req('https://api.bilibili.com/x/v2/reply/add', { method: 'POST', form: { type: 1, oid: aid, message, plat: 1, csrf, ...(root ? { root, parent: parent || root } : {}), ...(at.length ? { at_name_to_mid: JSON.stringify(map) } : {}) } })
+    return { rpid: d.rpid, at, missed }
   }
 
   /** 点赞视频。要登录。 */

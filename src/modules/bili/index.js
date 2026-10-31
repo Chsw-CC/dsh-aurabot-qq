@@ -37,7 +37,7 @@ export default {
         }),
         defineTool({
           name: 'bili_comment',
-          description: '在一个 B 站视频下发评论（只有主人让你发的时候才用）。link 填链接或 BV 号，text 是评论内容。',
+          description: '在一个 B 站视频下发评论（只有主人让你发的时候才用）。link 填链接或 BV 号，text 是评论内容。要 @ 人就写 @完整昵称 并在后面空一格，@主人 会换成主人的 B 站号。',
           properties: { link: str('B 站链接或 BV 号'), text: str('评论内容') },
           required: ['link', 'text'],
           execute: async ({ link, text }) => {

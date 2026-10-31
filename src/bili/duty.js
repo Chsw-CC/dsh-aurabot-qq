@@ -170,6 +170,12 @@ export function createBili({ getConfig, hub, memory, log, dsh, api: injected, vi
     return r
   }
 
+  /** 她写 @主人 时换成主人的 B 站昵称，名字后面要有空格才算结束。 */
+  const atOwner = (text) => {
+    const name = String(cfg().ownerName || '').trim()
+    return name ? String(text).replace(/[@＠]主人\s*/g, `@${name} `) : String(text)
+  }
+
   /** 刷一轮。force = 面板里手动点的（不占每天的次数）。 */
   async function run({ force = false } = {}) {
     const c = cfg()
@@ -220,7 +226,7 @@ export function createBili({ getConfig, hub, memory, log, dsh, api: injected, vi
         if (comment && !isSilence(comment) && commented < commentLeft && canPost(s)) {
           try {
             if (getConfig().dryRun) log.info(`试运行：本来要在 B 站《${v.title}》下评论：${comment}`)
-            else await api.postComment(v.aid, comment.slice(0, 200))
+            else await api.postComment(v.aid, atOwner(comment).slice(0, 200))
             commented++
             s.comments++
             memory?.addEvent?.({ text: `在B站《${v.title}》下评论：${comment.slice(0, 60)}`, tags: ['B站'], importance: 0.4 })
@@ -329,14 +335,15 @@ export function createBili({ getConfig, hub, memory, log, dsh, api: injected, vi
   }
 
   /** 在某个视频下发评论（主人让她发的）。 */
-  async function comment(text, message) {
+  async function comment(text, rawMessage) {
+    const message = atOwner(rawMessage)
     const w = await watch(text)
     if (!w.ok) return w
     if (getConfig().dryRun) return { ok: true, message: `试运行：本来要在《${w.title}》下评论：${message}` }
-    await api.postComment(w.aid, String(message).slice(0, 200))
+    const r = await api.postComment(w.aid, String(message).slice(0, 200))
     memory?.addEvent?.({ text: `在B站《${w.title}》下评论：${String(message).slice(0, 60)}`, tags: ['B站'], importance: 0.45 })
     const s = load(); record(s, { kind: 'comment', title: w.title, bvid: w.bvid, text: message }); save(s)
-    return { ok: true, message: `评论发出去了（《${w.title}》）` }
+    return { ok: true, message: `评论发出去了（《${w.title}》）${r?.missed?.length ? `；没找到 ${r.missed.join('、')}，这几个没 @ 上` : ''}` }
   }
 
   /** 改自己的 B 站签名（权限在模块里查）。 */
