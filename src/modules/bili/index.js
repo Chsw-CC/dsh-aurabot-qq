@@ -41,10 +41,10 @@ export default {
           properties: { link: str('B 站链接或 BV 号'), text: str('评论内容') },
           required: ['link', 'text'],
           execute: async ({ link, text }) => {
-            // 这里的「仅主人」包括主人在群里开口，比改资料类权限宽一点，保持原来的行为
+            // 评论权限：off / owner / all；owner 模式要求本轮所有说话人都是主人
             const perm = permOf(api.config(), 'biliComment')
             if (perm === 'off') return { ok: false, message: '这个操作在面板里关掉了' }
-            if (perm === 'owner' && !hub.turnHasOwner(sessionId)) return { ok: false, message: '只有主人能让我去发评论' }
+            if (perm === 'owner' && !hub.turnSendersAllOwner(sessionId)) return { ok: false, message: '只有主人能让我去发评论' }
             return bili.comment(String(link || ''), String(text || ''))
           },
         }),
@@ -54,14 +54,20 @@ export default {
           description: '把你在 B 站视频里截到的画面发到当前聊天。主人说「发张截图」「给我看看你刷到的」「刚才那个视频长啥样」这类话时用。query 填视频标题里的词或想看的内容，不填就挑最近的一张。',
           properties: { query: str('可选：视频标题关键词，或想看的内容') },
           required: [],
-          execute: async ({ query }) => bili.sendShot({ chatId: chat.chatId, query: String(query || '') }),
+          execute: async ({ query }) => {
+            if (!hub.turnSendersAllOwner(sessionId)) return { ok: false, message: '截图只给主人看' }
+            return bili.sendShot({ chatId: chat.chatId, query: String(query || '') })
+          },
         }),
         defineTool({
           name: 'qq_list_shots',
           description: '看看你手上还有哪些 B 站截图（来自哪个视频、第几秒）。挑截图之前可以先看一眼。',
           properties: { query: str('可选，按视频标题筛选') },
           required: [],
-          execute: async ({ query }) => bili.listShots(String(query || '')),
+          execute: async ({ query }) => {
+            if (!hub.turnSendersAllOwner(sessionId)) return { ok: false, message: '截图只给主人看' }
+            return bili.listShots(String(query || ''))
+          },
         }),
       ]
     })
