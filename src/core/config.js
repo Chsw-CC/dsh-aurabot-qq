@@ -131,6 +131,9 @@ export const DEFAULTS = {
     maxCommentsPerDay: 3,
     reply: true, // 回别人回她的评论
     maxRepliesPerDay: 6,
+    danmakuEnabled: false, // 主人主动打开后才允许发送弹幕
+    autoDanmaku: false, // 刷完自己发弹幕，另行开启
+    maxDanmakuPerDay: 3, // 手动和自动共用提交上限（失败也计数）
     shareToOwner: true, // 看到好玩的私聊分享给主人
     like: false, // 顺手点赞
     vision: false, // 可选：ffmpeg 抽帧交给视觉模型
@@ -353,7 +356,7 @@ export function normalize(raw) {
   for (const k of ['tts', 'image', 'song', 'asr']) c.local[k] = bool(c.local[k], false)
   const b = c.bili
   Object.assign(b, splitBiliCookie(b))
-  for (const k of ['enabled', 'autoBrowse', 'comment', 'reply', 'shareToOwner', 'like', 'vision']) b[k] = bool(b[k], DEFAULTS.bili[k])
+  for (const k of ['enabled', 'autoBrowse', 'comment', 'reply', 'shareToOwner', 'like', 'vision', 'danmakuEnabled', 'autoDanmaku']) b[k] = bool(b[k], DEFAULTS.bili[k])
   b.visionFrames = Math.round(num(b.visionFrames, 6, 1, 100))
   b.ffmpegPath = String(b.ffmpegPath || '').trim()
   b.shotChance = num(b.shotChance, 0.35, 0, 1)
@@ -365,6 +368,7 @@ export function normalize(raw) {
   b.maxAgeDays = num(b.maxAgeDays, 60, 0, BIG)
   b.maxCommentsPerDay = num(b.maxCommentsPerDay, 3, 0, BIG)
   b.maxRepliesPerDay = num(b.maxRepliesPerDay, 6, 0, BIG)
+  b.maxDanmakuPerDay = Math.round(num(b.maxDanmakuPerDay, 3, 1, 20))
   b.keywords = (Array.isArray(b.keywords) ? b.keywords : String(b.keywords || '').split(/[\n,，]+/)).map((x) => String(x).trim()).filter(Boolean).slice(0, 30)
   const hb = c.heybox
   hb.shareToOwner = bool(hb.shareToOwner, true)
