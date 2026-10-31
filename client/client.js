@@ -3017,7 +3017,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
         h(Card, { title: '刷 B 站', right: f.sw('bili.enabled'), desc: 'ta会定时去 B 站刷几个视频：从ta的兴趣、记忆里你喜欢的东西和下面的关键词里挑方向去搜，读简介、字幕和热评，再按自己的性格决定评不评论、要不要私聊分享给你、记住什么。看过的、评过的都记成ta的经历，聊天时会自然提起。你在 QQ 里发 B 站链接或分享卡片，ta也能点进去看完再聊。' },
           h(BiliCookie, { draft, setDraft }),
           h('div', { className: 'ab-flex', style: { marginTop: 4 } },
-            h(Btn, { small: true, onClick: async () => { const r = await get('/bili/account'); setS({ ...(s || {}), account: r }) } }, '检查登录'),
+            h(Btn, { small: true, onClick: async () => { await get('/bili/account'); load() } }, '检查登录'),
             acct ? h('span', { className: 'ab-small', style: { color: acct.isLogin ? 'var(--ab-ok)' : 'var(--ab-warn)' } }, acct.isLogin ? '已登录：' + acct.uname : '没登录（只能看，不能评论）') : null),
         ),
         h(Card, { title: '怎么刷', desc: '只在「主动搭话」里设的醒着时间内刷。' },
@@ -3052,13 +3052,65 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
         h(Card, { title: 'ta刷过什么', right: h('div', { className: 'ab-flex' },
           h(Btn, { small: true, onClick: act('/bili/replies', 'replies'), disabled: !!busy }, busy === 'replies' ? '正在看…' : '看看有没有人回ta'),
           h(Btn, { small: true, kind: 'primary', onClick: act('/bili/run', 'run'), disabled: !!busy }, busy === 'run' ? h(Fragment, null, h('i', { className: 'ab-spin' }), ' 正在刷…') : '现在刷一轮')) },
-          s && s.pauseReason ? h('div', { className: 'ab-note warn', style: { marginBottom: 8 } }, '今天先不发评论和回复了：' + s.pauseReason + '（明天自动恢复；Cookie 过期的话重新复制一份填上）') : null,
+          s && s.pauseReason ? h('div', { className: 'ab-note warn', style: { marginBottom: 8 } }, '今天先不发评论和回复了：' + s.pauseReason + '。登录失效请保存新 Cookie 后点「检查登录」；验证、风控或频率限制不会因登录成功而解除。') : null,
           s ? h('div', { className: 'ab-muted ab-small', style: { marginBottom: 8 } }, '今天自动刷了 ' + s.runs + ' 轮 · 评论 ' + s.comments + ' 条 · 回复 ' + s.replies + ' 条' + (s.lastRun ? ' · 上次 ' + timeAgo(s.lastRun) : '') + '（手动刷不占次数）') : null,
           !s ? h(Empty, { icon: '⏳', text: '加载中…' }) : s.history.length === 0 ? h(Empty, { icon: '📺', text: '还没刷过。点「现在刷一轮」试试。' }) :
             h('div', { className: 'ab-list' }, s.history.map((x, i) => h('div', { key: i, className: 'ab-li' },
               h('div', { className: 'meta' }, timeAgo(x.at), h('br'), BILI_KIND[x.kind] || x.kind),
               h('div', { className: 'body' }, x.bvid ? h('a', { href: 'https://www.bilibili.com/video/' + x.bvid, target: '_blank', rel: 'noreferrer' }, '《' + x.title + '》') : h('b', null, '《' + x.title + '》'), x.text ? h('div', { className: 'ab-muted' }, x.text) : null)))),
         ),
+        h(BiliDanmaku, { draft, setDraft, toast }),
+      )
+    }
+
+    /** 弹幕直接嵌在内置 B 站页，不依赖额外扩展面板。 */
+    function BiliDanmaku({ draft, setDraft, toast }) {
+      const f = useField(draft, setDraft)
+      const [video, setVideo] = useState('')
+      const [part, setPart] = useState(1)
+      const [seconds, setSeconds] = useState('')
+      const [text, setText] = useState('')
+      const [position, setPosition] = useState('scroll')
+      const [info, setInfo] = useState(null)
+      const [status, setStatus] = useState(null)
+      const [busy, setBusy] = useState(false)
+      const load = () => get('/bili/danmaku/state').then(setStatus)
+      useEffect(() => { load() }, [])
+      useEffect(() => { setInfo(null) }, [video, part])
+      const action = async (kind) => {
+        setBusy(true)
+        try {
+          const response = await fetch(API + '/bili/danmaku/' + kind, {
+            method: 'POST', headers: { 'content-type': 'application/json', 'x-aurabot-bili-danmaku': '1' },
+            body: JSON.stringify({ video, part, seconds, text, position }),
+          })
+          const result = await response.json()
+          if (result.info) setInfo(result.info)
+          toast(result.message || (result.ok ? '视频信息已读取' : '读取未完成'), result.ok ? 'ok' : 'err')
+          await load()
+        } catch { toast('弹幕接口暂时无法连接，请先到 B 站确认是否发送，避免重复提交', 'err') }
+        finally { setBusy(false) }
+      }
+      return h(Card, { title: '视频弹幕', desc: '两个开关默认关闭，改完先保存设置。发送按钮会实际提交弹幕；试运行时不发送。沿用本页的 B 站登录。' },
+        h(Row, { label: '允许发送弹幕', hint: '关闭后手动、聊天工具和自动弹幕均不发送；聊天工具只接受主人私聊请求' }, f.sw('bili.danmakuEnabled')),
+        h(Row, { label: '刷完视频自己发弹幕', hint: '另行开启；每个视频每天最多一条自动弹幕' }, f.sw('bili.autoDanmaku')),
+        h(Row, { label: '每天最多提交弹幕', hint: '手动和自动共用次数上限，提交失败也计数' }, f.num('bili.maxDanmakuPerDay', { min: 1, max: 20 })),
+        h(Row, { label: '视频或番剧链接', hint: '支持 BV/av、ep单集、ss整季链接；短链接请先展开' }, h('input', { className: 'ab-input', value: video, placeholder: '视频链接、番剧链接或编号', onChange: (e) => setVideo(e.target.value) })),
+        h(Row, { label: '分P / 选集序号', hint: '普通视频填1；多段投稿选分P，ss整季链接选第几集；ep链接直接定位那一集' }, h('input', { className: 'ab-input sm', type: 'number', min: 1, value: part, onChange: (e) => setPart(e.target.value) })),
+        h(Row, { label: '出现时间（秒）', hint: '例如83表示01:23；按当前分P或单集计算' }, h('input', { className: 'ab-input sm', type: 'number', min: 0, step: 0.1, value: seconds, onChange: (e) => setSeconds(e.target.value) })),
+        h(Row, { label: '弹幕文字', hint: '一行，最多100字' }, h('input', { className: 'ab-input', value: text, onChange: (e) => setText(e.target.value) })),
+        h(Row, { label: '位置' }, h('select', { className: 'ab-input', value: position, onChange: (e) => setPosition(e.target.value) },
+          h('option', { value: 'scroll' }, '滚动'), h('option', { value: 'top' }, '顶部'), h('option', { value: 'bottom' }, '底部'))),
+        info ? h('p', { className: 'ab-note' }, `《${info.title}》 · ${info.kind === 'bangumi' ? '番剧单集' : '第' + info.part + 'P'} · ${info.duration}秒`) : null,
+        h('div', { className: 'ab-flex', style: { marginTop: 12 } },
+          h(Btn, { disabled: busy || !video, onClick: () => action('inspect') }, '检查视频（不发送）'),
+          h(Btn, { kind: 'primary', disabled: busy || !video || !text.trim() || seconds === '' || draft.bili?.danmakuEnabled !== true, onClick: () => action('send') }, busy ? '处理中…' : '发送弹幕')),
+        status?.ok ? h('p', { className: 'ab-small ab-muted' }, `今天已确认发送 ${status.sentToday} 条 · 已提交 ${status.attemptsToday}/${status.limit} 次 · 两次提交至少间隔30秒`) : null,
+        h('div', { className: 'ab-list' }, (status?.history || []).map((row, index) => h('div', { className: 'ab-li', key: index },
+          h('div', { className: 'meta' }, timeAgo(row.at), h('br'), row.auto ? '自己决定' : '主人要求'),
+          h('div', { className: 'body' }, h('b', null, row.title || row.video), ` · ${/^(ep|ss)/.test(row.video) ? '番剧单集' : '第' + row.part + 'P'} ${row.seconds}秒`, h('div', null, row.text),
+            h('div', { className: 'ab-small ab-muted' }, row.ok ? `已发送 · 弹幕ID ${row.id}` : row.message),
+            row.platformResponse ? h('details', null, h('summary', null, '平台响应'), h('pre', { className: 'ab-code' }, JSON.stringify(row.platformResponse, null, 2))) : null)))),
       )
     }
 
