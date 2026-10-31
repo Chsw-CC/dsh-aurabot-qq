@@ -1527,6 +1527,73 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
       )
     }
 
+    function DiaryMedia({ st, draft, setDraft, toast }) {
+      const f = useField(draft, setDraft)
+      const [preview, setPreview] = useState(null)
+      const [busy, setBusy] = useState(false)
+      const request = useRef(0)
+      const unsaved = JSON.stringify(draft.diary) !== JSON.stringify(st.config.diary)
+      // 修改配置后清掉旧预览，避免把旧目录或旧可见范围当成当前设置。
+      useEffect(() => { request.current++; setPreview(null); setBusy(false) }, [JSON.stringify(draft.diary)])
+      useEffect(() => () => { request.current++ }, [])
+      const generate = async () => {
+        const id = ++request.current
+        setBusy(true)
+        setPreview(null)
+        try {
+          const result = await post('/diary/preview', {})
+          if (id !== request.current) return
+          if (!result.ok) return toast(result.message || '预览没有生成')
+          setPreview(result)
+        } finally { if (id === request.current) setBusy(false) }
+      }
+      return h(Card, { title: '图文日记与预览', right: f.sw('diary.rich.enabled'), desc: '默认关闭。开启后围绕公开浏览经历或心情写日记，按备注挑选配图；关闭后沿用原来的日记流程。' },
+        draft.diary.rich?.enabled ? h('div', null,
+          h(Row, { label: '表情包', hint: '默认关闭，需主人单独开启；开启后可能将从群聊收藏的表情图发布到空间' }, f.sw('diary.rich.stickers')),
+          h(Row, { label: '公开浏览配图', hint: '仅取已浏览作品的公开封面；发布会附原作者和作品链接' }, f.sw('diary.rich.browsing')),
+          h(Row, { label: '使用指定目录的图片', hint: '只放你允许自动发布到空间的图片；文件内容不会自动识别隐私' }, f.sw('diary.rich.local')),
+          h(Row, { label: '本地图片目录', hint: '由主人主动填写完整路径。留空不扫描；不读取桌面或聊天截图' }, f.text('diary.rich.folder', { placeholder: '留空不读取本地图库' })),
+          h(Row, { label: '每篇最多配图' }, f.num('diary.rich.maxImages', { min: 1, max: 4 })),
+        ) : null,
+        h('div', { className: 'ab-small ab-muted', style: { margin: '12px 0' } }, '先保存设置再预览。预览不会发布、记入发布历史或消耗当天次数；「现在写一篇」会重新写作，遵守保存的可见范围。'),
+        unsaved ? h('div', { className: 'ab-small', style: { color: 'var(--ab-warn)', marginBottom: 8 } }, '日记设置尚未保存，保存后可生成预览。') : null,
+        h(Btn, { kind: 'ghost', disabled: busy || unsaved, onClick: generate }, busy ? '正在生成预览…' : '生成预览（不发布）'),
+        preview ? h('div', { className: 'ab-note', style: { marginTop: 14 } },
+          h('div', { className: 'ab-small ab-muted' }, '预览 · ' + preview.label + ' · 尚未发布'),
+          h('div', { style: { whiteSpace: 'pre-wrap', margin: '10px 0' } }, preview.text),
+          h('div', { className: 'ab-flex', style: { flexWrap: 'wrap', alignItems: 'flex-start' } }, (preview.media || []).map((image) =>
+            h('figure', { key: image.id, style: { margin: 0, width: 160 } },
+              h('img', { src: image.src, alt: image.caption || '日记配图', style: { width: '100%', maxHeight: 180, objectFit: 'contain', borderRadius: 10 } }),
+              h('figcaption', { className: 'ab-small ab-muted' }, image.kind === 'browsing' || image.sourceKind === 'browsing' ? image.platform + ' · ' + image.title : image.kind === 'local' ? '主人指定图库 · ' + image.caption : '表情包 · ' + image.caption)))),
+          (preview.warnings || []).map((warning, i) => h('div', { key: i, className: 'ab-small', style: { color: 'var(--ab-warn)' } }, warning)),
+        ) : null,
+      )
+    }
+
+    function DiaryArchive({ st, draft, setDraft, toast }) {
+      const f = useField(draft, setDraft)
+      const [status, setStatus] = useState(null)
+      const [busy, setBusy] = useState(false)
+      const unsaved = JSON.stringify(draft.diary.archive) !== JSON.stringify(st.config.diary.archive)
+      const load = () => get('/diary/archive').then(setStatus)
+      useEffect(() => {
+        load()
+        const timer = setInterval(load, 15_000)
+        return () => clearInterval(timer)
+      }, [])
+      return h(Card, { title: '按日期归档浏览图', right: f.sw('diary.archive.enabled'), desc: '默认关闭。每五分钟把已有的公开浏览配图或 B 站视频抽帧保存一份，按浏览日期放入 20261031 这样的文件夹。不截取桌面或聊天。' },
+        h(Row, { label: '归档文件夹', hint: '主人主动指定的输出目录，留空不保存；每张图附来源说明文件' }, f.text('diary.archive.folder', { placeholder: '请填写完整路径' })),
+        h('div', { className: 'ab-small ab-muted', style: { margin: '10px 0' } }, status ? '已归档 ' + status.count + ' 张' + (status.lastAt ? ' · 最近收集 ' + new Date(status.lastAt).toLocaleString() : '') : '正在读取归档状态…'),
+        status?.error ? h('div', { className: 'ab-small', style: { color: 'var(--ab-warn)' } }, status.error) : null,
+        h(Btn, { kind: 'ghost', disabled: busy || unsaved || !draft.diary.archive?.enabled || !draft.diary.archive?.folder, onClick: async () => {
+          setBusy(true)
+          try { const result = await post('/diary/archive/collect', {}); toast(result.message || '归档完成'); await load() }
+          finally { setBusy(false) }
+        } }, busy ? '正在收集…' : '现在收集浏览图'),
+        h('div', { className: 'ab-small ab-muted', style: { marginTop: 8 } }, '先保存设置。总开关关闭或试运行开启时不保存图片；归档本身不会发布到空间。要用作日记配图，另在上方启用指定图库。'),
+      )
+    }
+
     function Diary({ st, draft, setDraft, toast }) {
       const f = useField(draft, setDraft)
       const [data, setData] = useState(null)
@@ -1541,17 +1608,28 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           h(Row, { label: '时间段', hint: '在这段时间里随机挑时间' }, f.text('diary.windowStart', { size: 'sm' }), h('span', { className: 'ab-muted' }, '到'), f.text('diary.windowEnd', { size: 'sm' })),
           h(Row, { label: '两篇至少隔' }, f.num('diary.minGapMinutes', { min: 0 }), h('span', { className: 'ab-muted' }, '分钟')),
           h(Row, { label: '字数' }, f.num('diary.minChars', { min: 10 }), h('span', { className: 'ab-muted' }, '到'), f.num('diary.maxChars', { min: 20 }), h('span', { className: 'ab-muted' }, '字')),
-          h(Row, { label: '日记配图', hint: '开着时每篇会从「今天她画的图 / 今天收的表情包」里挑一张配上去；没有合适的就只发文字' }, f.sw('diary.attachImage')),
           h(DiaryAudience, { draft, setDraft, toast }),
         ),
+        h(DiaryMedia, { st, draft, setDraft, toast }),
+        h(DiaryArchive, { st, draft, setDraft, toast }),
         h(Card, { title: '写过的日记', right: h('div', { className: 'ab-flex' },
           data && data.next ? h('span', { className: 'ab-muted ab-small' }, '下一篇大约 ' + data.next) : null,
           h(Btn, { small: true, kind: 'ghost', title: '刷新空间状态', onClick: load }, h('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, 'aria-hidden': true }, h('path', { d: 'M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17' }))),
-          h(Btn, { small: true, kind: 'primary', onClick: async () => { toast('她在写了…'); try { const r = await post('/diary/run', {}); toast(r.ok ? (r.dryRun ? '写好了（试运行，没真发）' : '发出去了') : r.message) } catch (e) { toast(e.message) } finally { await load() } } }, '现在写一篇')) },
+          h(Btn, { small: true, kind: 'primary', onClick: async () => {
+            toast('她在写了…')
+            try {
+              const r = await post('/diary/run', {})
+              const message = r.dryRun ? '写好了（试运行，没真发）' : '发出去了'
+              toast(r.ok ? [message, ...(r.warnings || [])].join('；') : r.message)
+            } catch (e) { toast(e.message) }
+            finally { await load() }
+          } }, '现在写一篇')) },
           !data ? h(Empty, { icon: '⏳', text: '加载中…' }) : !data.items || data.items.length === 0 ? h(Empty, { icon: '📔', text: '还没写过日记。' }) :
             h('div', { className: 'ab-list' }, data.items.map((d, i) => h('div', { key: i, className: 'ab-li' },
               h('div', { className: 'meta' }, new Date(d.at).toLocaleString(), h('br'), d.deletedAt ? '已从空间删除' : d.dryRun ? '试运行' : d.ok ? (AUDIENCE_LABEL[d.visibility] || '已发布') : '失败'),
-              h('div', { className: 'body' }, d.text, d.error ? h('div', { className: 'ab-small', style: { color: 'var(--ab-err)' } }, d.error) : null),
+              h('div', { className: 'body' }, d.text,
+                (d.warnings || []).map((warning, index) => h('div', { key: index, className: 'ab-small', style: { color: 'var(--ab-warn)' } }, warning)),
+                d.error ? h('div', { className: 'ab-small', style: { color: 'var(--ab-err)' } }, d.error) : null),
               d.tid && !d.deletedAt ? h(Btn, { small: true, kind: 'ghost', onClick: async () => { if (!confirm('从 QQ 空间删除这条说说？')) return; try { const r = await post('/qzone/delete', { tid: d.tid }); toast(r.message) } catch (e) { toast(e.message) } finally { await load() } } }, '从空间删除') : null))),
         ),
         social,

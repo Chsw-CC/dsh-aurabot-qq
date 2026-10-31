@@ -104,6 +104,9 @@ export const DEFAULTS = {
     windowEnd: '23:30',
     minGapMinutes: 180,
     attachImage: true, // 写日记时配一张图（优先今天她画的，其次今天收的表情包）
+    // 可选图文日记：关着时沿用原来的聊天摘录和配图流程；本地目录必须由主人填写。
+    rich: { enabled: false, stickers: false, browsing: false, local: false, folder: '', maxImages: 2 },
+    archive: { enabled: false, folder: '' }, // 已有公开浏览图按浏览日期归档；必须由主人指定输出目录
     minChars: 60,
     maxChars: 140,
     visibility: 'all', // all | friends | selected | self | excluded，和 QQ 空间自身的可见范围一致
@@ -312,6 +315,16 @@ export function normalize(raw) {
   c.diary.windowEnd = hhmm(c.diary.windowEnd, '23:30')
   c.diary.minGapMinutes = num(c.diary.minGapMinutes, 180, 0, 1440)
   c.diary.attachImage = bool(c.diary.attachImage, true)
+  if (!isObj(c.diary.rich)) c.diary.rich = { ...DEFAULTS.diary.rich }
+  for (const key of ['enabled', 'stickers', 'browsing', 'local']) c.diary.rich[key] = bool(c.diary.rich[key], DEFAULTS.diary.rich[key])
+  c.diary.rich.folder = typeof c.diary.rich.folder === 'string' ? c.diary.rich.folder.trim() : ''
+  if (c.diary.rich.folder && !/^([a-zA-Z]:[\\/]|\/)/.test(c.diary.rich.folder)) c.diary.rich.folder = ''
+  delete c.diary.rich.cards
+  c.diary.rich.maxImages = Math.round(num(c.diary.rich.maxImages, 2, 1, 4))
+  if (!isObj(c.diary.archive)) c.diary.archive = { ...DEFAULTS.diary.archive }
+  c.diary.archive.enabled = bool(c.diary.archive.enabled, false)
+  c.diary.archive.folder = typeof c.diary.archive.folder === 'string' ? c.diary.archive.folder.trim() : ''
+  if (c.diary.archive.folder && !/^([a-zA-Z]:[\\/]|\/)/.test(c.diary.archive.folder)) c.diary.archive.folder = ''
   c.diary.minChars = num(c.diary.minChars, 60, 10, 500)
   c.diary.maxChars = num(c.diary.maxChars, 140, 20, 1000)
   c.diary.visibility = DIARY_AUDIENCES.includes(c.diary.visibility) ? c.diary.visibility : 'all'
