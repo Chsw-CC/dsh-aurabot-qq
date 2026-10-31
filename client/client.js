@@ -2839,17 +2839,32 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
       const [cat, setCat] = useState('')
       const load = (force) => get('/modules/community' + (force ? '?force=1' : '')).then(setData)
       useEffect(() => { load() }, [])
+      // 一直查进度：恢复备份、老用户迁移时模块在后台装，不是从这个页面点的
       useEffect(() => {
-        if (!busy) { setProg(null); return }
-        const t = setInterval(() => get('/modules/community/progress').then((r) => setProg(r.progress || null)), 300)
+        let was = false
+        const tick = () => get('/modules/community/progress').then((r) => {
+          const now = r.progress || null
+          setProg(now)
+          if (was && !now) load()
+          was = Boolean(now)
+        })
+        const t = setInterval(tick, busy ? 300 : 1000)
+        tick()
         return () => clearInterval(t)
       }, [busy])
       const percent = prog && prog.total ? Math.min(100, Math.round(prog.received / prog.total * 100)) : 0
-      const progText = (word) => {
-        if (!prog) return word + '中…'
-        if (prog.stage === 'install') return '正在安装…'
+      const stageText = () => {
+        if (prog.stage === 'index') return '读取模块列表…'
+        if (prog.stage === 'install') return '解压安装…'
+        if (prog.stage === 'start') return '启动模块…'
         return '下载中 ' + (prog.total ? percent + '%' : Math.round(prog.received / 1024) + ' KB')
       }
+      const progText = (word) => (prog ? stageText() : word + '中…')
+      const STAGE_BAR = { index: 10, install: 90, start: 95 }
+      const progBar = prog ? h('div', { className: 'ab-card', style: { marginBottom: 12 } },
+        h('div', { className: 'ab-flex', style: { justifyContent: 'space-between' } }, h('b', null, '正在安装「' + (prog.name || prog.id) + '」'), h('span', { className: 'ab-muted ab-small' }, stageText())),
+        h('div', { style: { height: 6, borderRadius: 3, background: 'var(--ab-foam-2)', marginTop: 8, overflow: 'hidden' } },
+          h('div', { style: { height: '100%', width: (STAGE_BAR[prog.stage] || Math.max(12, 10 + percent * 0.8)) + '%', background: 'var(--ab-sea)', transition: 'width .3s' } }))) : null
       const done = async (r) => {
         toast(r.message, r.ok ? 'ok' : 'err')
         await load()
@@ -2888,8 +2903,6 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
           h('p', { className: 'ab-desc', style: { margin: '8px 0' } }, m.description),
           capText(m).length ? h('div', { className: 'ab-small ab-muted', style: { marginBottom: 10 } }, '会用到：' + capText(m).join('、')) : null,
           note ? h('div', { className: 'ab-note warn', style: { marginBottom: 10 } }, note) : null,
-          busy === m.id && percent ? h('div', { style: { height: 4, borderRadius: 2, background: 'var(--ab-foam-2)', marginBottom: 10, overflow: 'hidden' } },
-            h('div', { style: { height: '100%', width: percent + '%', background: 'var(--ab-sea)', transition: 'width .2s' } })) : null,
           h('div', { className: 'ab-flex', style: { marginTop: 'auto' } },
             !m.installed && !m.foreign && !m.delisted ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? progText('安装') : '安装') : null,
             m.update ? h(Btn, { small: true, kind: 'primary', disabled: Boolean(busy || m.blocked), onClick: () => install(m) }, busy === m.id ? progText('更新') : '更新') : null,
@@ -2897,6 +2910,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
             m.installed ? h(Btn, { small: true, kind: 'ghost', disabled: Boolean(busy), onClick: () => remove(m) }, '卸载') : null))
       }
       return h('div', { className: 'ab-grid' },
+        progBar,
         h(Card, { title: '模块市场', desc: '给ta装更多本事。模块由社区提供、维护者审核后上架；它们和插件在同一进程运行，能接触账号配置，装之前看清下面列的能力。', right: h(Btn, { small: true, kind: 'ghost', onClick: () => load(true) }, '刷新') },
           h('div', { className: 'ab-flex' },
             h('input', { className: 'ab-input', placeholder: '搜模块', value: q, onChange: (e) => setQ(e.target.value) }),

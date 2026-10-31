@@ -90,6 +90,22 @@ test('安装时报进度，装完清空', async () => {
   assert.equal(c.progress(), null)
 })
 
+test('安装每一步都报进度，含启动模块', async () => {
+  const p = pack('stage-mod', '1.0.0')
+  const stages = []
+  let c
+  const fetcher = async (url) => {
+    stages.push(c.progress()?.stage)
+    if (url.endsWith('index.json')) return { ok: true, json: async () => ({ schema: 1, assetsBase: 'https://x/', modules: [p.entry] }) }
+    return { ok: true, arrayBuffer: async () => p.buf }
+  }
+  const mods = { status: () => [], sync: async () => { stages.push(c.progress()?.stage); assert.equal(c.progress().name, 'stage-mod') }, stop: () => true }
+  c = createCommunity({ mods, getConfig: () => ({}), setConfig() {}, log: { info() {}, warn() {} }, version: '1.2.0', registryUrl: 'https://x/index.json', fetcher })
+  assert.equal((await c.install('stage-mod')).ok, true)
+  assert.deepEqual(stages, ['index', 'download', 'start'])
+  assert.equal(c.progress(), null)
+})
+
 test('断网先重试，再失败说人话并写日志', async () => {
   const p = pack('flaky-mod', '1.0.0')
   const index = { ok: true, json: async () => ({ schema: 1, assetsBase: 'https://x/', modules: [p.entry] }) }

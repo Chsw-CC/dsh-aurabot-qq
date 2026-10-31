@@ -113,7 +113,7 @@ export function createCommunity({ mods, getConfig, setConfig, log, version, aliv
   const dirOf = (id) => join(userDir(), id)
   let cache = null // { at, index }
   let busy = null // 同一时间只跑一个安装 / 卸载
-  let progress = null // 安装中：{ id, stage: 'download' | 'install', received, total }
+  let progress = null // 安装中：{ id, name, stage: 'index' | 'download' | 'install' | 'start', received, total }
 
   const readSource = (id) => {
     try { return JSON.parse(readFileSync(join(dirOf(id), SOURCE_FILE), 'utf8')) } catch (error) { return null }
@@ -170,7 +170,7 @@ export function createCommunity({ mods, getConfig, setConfig, log, version, aliv
     const url = String(index.assetsBase || '') + e.path
     if (!/^https:\/\//.test(url)) throw new Error('下载地址不对')
     const buf = await withRetry(async () => {
-      progress = { id: e.id, stage: 'download', received: 0, total: 0 }
+      progress = { id: e.id, name: e.name, stage: 'download', received: 0, total: 0 }
       const r = await fetcher(url, { signal: AbortSignal.timeout(120_000), redirect: 'follow' })
       if (!r.ok) throw new Error(`下载失败（HTTP ${r.status}）`)
       progress.total = Number(r.headers?.get?.('content-length')) || 0
@@ -222,6 +222,7 @@ export function createCommunity({ mods, getConfig, setConfig, log, version, aliv
 
   /** 安装或更新。同名但不是社区装的文件夹不碰；替换内置模块要明确 confirmReplace。 */
   const install = (id, { confirmReplace = false } = {}) => exclusive(async () => {
+    progress = { id, name: id, stage: 'index', received: 0, total: 0 }
     const index = await loadIndex({ force: true })
     const e = (index.modules || []).find((x) => x.id === id)
     if (!e) return { ok: false, message: `社区库里没有「${id}」` }
@@ -230,8 +231,9 @@ export function createCommunity({ mods, getConfig, setConfig, log, version, aliv
     const why = blocked(index, e)
     if (why) return { ok: false, message: why }
     const files = readZip(await download(index, e))
-    progress = { id, stage: 'install', received: 0, total: 0 }
+    progress = { id, name: e.name, stage: 'install', received: 0, total: 0 }
     place(e, files)
+    progress = { id, name: e.name, stage: 'start', received: 0, total: 0 }
     await mods.sync()
     const m = mods.status().find((x) => x.id === id)
     if (m?.error) return { ok: false, message: `装好了，但加载失败：${m.error}` }
