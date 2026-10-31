@@ -810,7 +810,7 @@ export function apply(ctx) {
   })
   route('/commands', async () => ({ ok: true, list: commandList(mods.commands()) }))
   // 更新：检查 GitHub 上有没有新版本；这次更新了什么
-  const checkUpdate = createUpdateChecker({ pkg: PKG, log })
+  const checkUpdate = createUpdateChecker({ pkg: PKG, log, unstable: () => getConfig().update.unstable })
   route('/update/check', async (req) => checkUpdate({ force: query(req).force === '1' }))
   route('/changelog', async () => {
     let text = ''

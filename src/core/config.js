@@ -29,6 +29,7 @@ export const DEFAULTS = {
   // 危险命令确认（可选保护，默认关）：她在私聊里执行删根目录/格式化/关机/下载后直接执行等
   // 终端命令前，先发 QQ 私聊问主人，回复「确认」才执行；超时或「取消」就拦下。
   security: { dangerConfirm: false, ssrfMode: 'strict' },
+  update: { unstable: null }, // 订阅不稳定版本（beta、rc）；null = 没选过，按正在用的版本定
   snowluma: {
     dir: 'C:\\Aurabot\\snowluma', // 主人自己下载解压到这里（EULA 不允许自动部署）
     autoStart: true, // 随 DSH 启动它（只启动主人已安装并同意过协议的副本）
@@ -291,6 +292,7 @@ export function normalize(raw) {
   if (!isObj(c.security)) c.security = {}
   c.security.dangerConfirm = bool(c.security.dangerConfirm, false)
   c.security.ssrfMode = c.security.ssrfMode === 'loose' ? 'loose' : 'strict'
+  c.update = { unstable: typeof c.update?.unstable === 'boolean' ? c.update.unstable : null }
   c.files.enabled = bool(c.files.enabled, true)
   c.files.maxMB = num(c.files.maxMB, 50, 1, BIG)
   c.files.dirs = (Array.isArray(c.files.dirs) ? c.files.dirs : String(c.files.dirs || '').split(/[\n,，;；]+/))

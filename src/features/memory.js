@@ -13,6 +13,9 @@
 import { randomUUID } from 'node:crypto'
 import { dataDir, readJson, writeJson } from '../core/store.js'
 import { askModel } from '../core/llm.js'
+import { clipText } from '../core/text.js'
+
+const NO_ARRAY = '提炼记忆时模型没有返回 JSON 数组'
 
 // ---------------- 纯函数：切词与打分 ----------------
 
@@ -623,7 +626,7 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
     const source = chatId === 'qzone' ? '下面是 QQ 空间里的动态（好友发的说说、别人给你的评论、你的回复）' : '下面是一段聊天'
     const related = relatedTo(chatId, transcript)
     const known = new Map(related.map((m) => [m.id, m]))
-    const out = await askModel(dsh, {
+    const ask = (extra = {}) => askModel(dsh, {
       cfg,
       system: `你帮一个叫「大肥鱼」的聊天角色整理长期记忆。${source}，说话人后面括号里是 QQ 号。挑出以后值得记住的事实：别人的名字/称呼、喜好、讨厌的东西、身份、近况和重要经历、约定、你们之间的关系变化。不要记寒暄、日常琐事、一次性的问答；不要记大肥鱼自己的人设和喜好（她本来就知道），只记关于别人、以及你们之间的事。每条一句话，主语写清楚是谁。QQ 号是 ${cfg.ownerQQ} 的人是她的${cfg.ownerName || '主人'}。` +
         (related.length ? '\n每条新事实先和「已经记得的事」比一比：全新的写 "op":"add"；是对某条旧记忆的补充或更准确的说法，写 "op":"update"、"id" 填那条的编号、"text" 写合并后的完整说法；和某条旧记忆矛盾、说明那条已经过时（比如以前喜欢现在不喜欢了、换了工作、搬家了、分手了），写 "op":"outdated"、"id" 填旧的编号、"text" 写现在的新事实。拿不准是不是矛盾就当 add；已经记得、没有新信息的不要输出。' : '') +
@@ -631,11 +634,15 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
       text: (related.length ? `已经记得的事：\n${related.map((m) => `#${m.id} [${whenText(m.at)}] ${m.aboutName ? '[' + m.aboutName + '] ' : ''}${m.text}`).join('\n')}\n\n` : '') + transcript,
       maxTokens: 1500,
       temperature: 0.2,
+      ...extra,
     })
+    let out = await ask()
+    // 推理模型可能把预算全花在思考上，一个字没写：关掉思考再问一次
+    if (!out) out = await ask({ reasoningEffort: 'off', maxTokens: 4000 })
     const m = out.match(/\[[\s\S]*\]/)
-    if (!m) throw new Error('提炼记忆时模型没有返回 JSON 数组')
+    if (!m) throw new Error(`${NO_ARRAY}（模型返回：${out ? clipText(out, 60) : '空'}）`)
     const arr = JSON.parse(m[0])
-    if (!Array.isArray(arr)) throw new Error('提炼记忆时模型没有返回 JSON 数组')
+    if (!Array.isArray(arr)) throw new Error(NO_ARRAY)
     let n = 0
     // 模型返回后才开始事务；期间没有异步操作，记忆和本批进度只写一次。
     transaction = load()
@@ -686,7 +693,11 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
   const EXTRACT_LINES = 80 // 每次给模型最多多少行
   const EXTRACT_WINDOW = 240 // 每段流水按聊天分组；完成后才推进整段的行号
   const EXTRACT_LIMIT = 12 // 每次整理最多提炼多少批，剩下的留到下次
+  const BAD_BATCH_LIMIT = 3 // 同一批连续几次提炼不出来就跳过，别让它卡住后面的记忆
+  const badBatches = new Map() // 批次 → 失败次数；重启清零，再给一次机会
   let busy = false
+  let failures = 0
+  let retryAt = 0
 
   /**
    * 整理临时记忆。
@@ -732,7 +743,18 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
                 s.processed[day] = { ...progress, chats: { ...progress.chats, [chatId]: n + part.length } }
                 save(s)
               })
-              if (!r.ok) throw new Error(r.message || '提炼记忆失败')
+              if (!r.ok) {
+                // 只跳过模型答非所问的；断网、上游出错等恢复了还要接着提炼
+                const key = `${day}:${chatId}:${n}`
+                const fails = (badBatches.get(key) || 0) + 1
+                badBatches.set(key, fails)
+                if (!String(r.message).includes(NO_ARRAY) || fails < BAD_BATCH_LIMIT) throw new Error(r.message || '提炼记忆失败')
+                log.warn(`${chatId} 第 ${n} 行起的 ${part.length} 行连续 ${fails} 次提炼不出来，跳过（流水还在）`)
+                const s = load()
+                s.processed = s.processed || {}
+                s.processed[day] = { ...progress, chats: { ...progress.chats, [chatId]: n + part.length } }
+                save(s)
+              }
               added += r.added || 0
               insights += r.insights ? 1 : 0
               batches++
@@ -890,9 +912,12 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
       const [hh, mm] = String(t).split(':').map(Number)
       return mins >= hh * 60 + mm && runs[t] !== today
     })
-    if (!due.length) return
+    if (!due.length || Date.now() < retryAt) return
     // 连今天到目前为止的聊天一起提炼；记着整理到第几行，下一次只处理新的
     const r = await consolidate({ includeToday: true })
+    // 失败后退避：10 分钟起步翻倍，最多 2 小时，不每分钟打一次模型
+    failures = r.ok ? 0 : failures + 1
+    retryAt = r.ok ? 0 : Date.now() + Math.min(120, 10 * 2 ** (failures - 1)) * 60_000
     if (r.ok) {
       const s2 = load()
       s2.runs = { ...(s2.runs || {}) }
