@@ -678,6 +678,7 @@ export function createModules({ ctx, core, getConfig, setConfig, logger, version
         defaults: def.defaults || {},
         panel: Boolean(rec?.source === 'user' && def.panel),
         tab: def.tab || '',
+        flag: typeof def.flag === 'string' ? def.flag : (def.settings || []).some((f) => f?.key === 'enabled') ? 'enabled' : '',
         keepPanel: Boolean(def.keepPanel),
         startedAt: rec?.startedAt || 0,
       }

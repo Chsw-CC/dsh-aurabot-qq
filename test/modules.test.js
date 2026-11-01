@@ -86,6 +86,10 @@ before(async () => {
     files: { enabled: true, maxMB: 5, dirs: [dataDir] },
   }))
   writeMod('echo', echoCode('pong'))
+  const flagCode = (id, extra) => `export default { id: '${id}', ${extra} setup() {} }`
+  writeMod('flagged', flagCode('flagged', "flag: 'loggedIn', settings: [{ key: 'enabled', label: '开' }],"))
+  writeMod('switchy', flagCode('switchy', "settings: [{ key: 'enabled', label: '开' }],"))
+  writeMod('plain', flagCode('plain', "settings: [{ key: 'city', label: '城市' }],"))
   writeMod('sender', senderCode)
   // 替换内置的空间日记
   writeMod('diary', `export default { id: 'diary', name: '我的日记', api: 1, setup(api) {
@@ -453,3 +457,10 @@ test('#52 模块 API：api.sendVoiceFile 把音频文件当语音条发', async 
   const call = mock.sent('send_private_msg').filter((c) => c.params.message.some((s) => s.type === 'record' && String(s.data.file).startsWith('base64://'))).at(-1)
   assert.ok(call, '语音条发出去了')
 })
+
+test('模块状态带标签状态点：写了 flag 用它，有 enabled 设置看 enabled，都没有不显示（#166）', async () => {
+  assert.equal((await mod('flagged')).flag, 'loggedIn')
+  assert.equal((await mod('switchy')).flag, 'enabled')
+  assert.equal((await mod('plain')).flag, '')
+})
+

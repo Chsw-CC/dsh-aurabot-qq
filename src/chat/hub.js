@@ -1005,12 +1005,11 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
       : q.records ? '，一条语音' : ''
     return `（引用 ${quoteWho(q)} 的消息：「${quoteBody(q)}」${pics}）`
   }
-  /** 引用里的图片 / 表情包：最多 take 张转成附件；模型看不了图就只留上面的文字说明。 */
+  /** 引用里的图片 / 表情包：最多 take 张转成附件；模型看不了图时 pushToSession 会换成文字。 */
   async function quoteImages(q, take = 2) {
     if (!q?.ok || take <= 0) return []
     const segs = [...q.images, ...q.stickers].slice(0, take)
     if (!segs.length) return []
-    if ((await canSeeImages(dsh, getConfig())) === false) return []
     const got = await imagesOf({ stickers: [], images: segs })
     return got.map((x, i) => ({ type: 'image', data: x.data, mediaType: x.mediaType, name: `quote-${q.uid || 'x'}-${i + 1}` }))
   }
@@ -1284,14 +1283,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const imgs = await imagesOf(msg)
     if (disposed) return
     if (imgs.length) {
-      // 模型明确不支持看图：硬塞图片块会让整轮请求被拒（她就一个字都回不了），改成一行文字提示
-      if ((await canSeeImages(dsh, cfg)) === false) {
-        content.push({ type: 'text', text: `（${msg.nickname} 发了 ${imgs.length} 张图片，你现在的模型看不了图，只能知道有这么回事）` })
-        log.debug(`模型不支持看图：${msg.chatId} 的 ${imgs.length} 张图换成文字提示`)
-      } else {
-        for (let i = 0; i < imgs.length; i++) content.push({ type: 'image', data: imgs[i].data, mediaType: imgs[i].mediaType, name: `qq-${msg.messageId}-${i + 1}` })
-        if (animatedNote(imgs)) content.push({ type: 'text', text: animatedNote(imgs) })
-      }
+      // 图片先留着，prompt 钩子里的模块可以接管（#167）；模型看不了图时 pushToSession 再换成文字
+      for (let i = 0; i < imgs.length; i++) content.push({ type: 'image', data: imgs[i].data, mediaType: imgs[i].mediaType, name: `qq-${msg.messageId}-${i + 1}` })
+      if (animatedNote(imgs) && (await canSeeFor(msg)) !== false) content.push({ type: 'text', text: animatedNote(imgs) })
     }
     // 引用里的图 / 表情包也给她看（最多 2 张，总数不超过 4；看不了图的模型靠上面的文字说明）
     if (quoted?.ok && (quoted.images.length || quoted.stickers.length) && imgs.length < 4) {
@@ -1377,10 +1371,9 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const p = pending.get(msg.chatId)
     if (!p || p.images.length >= MAX_MESSAGE_IMAGES) return
     try {
-      if ((await canSeeImages(dsh, getConfig())) === false) return
       const imgs = await imagesOf(msg)
       for (let i = 0; i < imgs.length && p.images.length < MAX_MESSAGE_IMAGES; i++) p.images.push({ type: 'image', data: imgs[i].data, mediaType: imgs[i].mediaType, name: `qq-${msg.messageId}-${i + 1}` })
-      if (animatedNote(imgs)) p.images.push({ type: 'text', text: animatedNote(imgs) })
+      if (animatedNote(imgs) && (await canSeeFor(p.chat)) !== false) p.images.push({ type: 'text', text: animatedNote(imgs) })
     } catch (error) {}
   }
 
@@ -1616,6 +1609,22 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     }
   }
 
+  async function canSeeFor(chat) {
+    const cfg = getConfig()
+    if (cfg.model?.vision === 'on') return true
+    if (cfg.model?.vision === 'off') return false
+    const selected = targetModel(chat)
+    return selected ? modelVision(dsh, selected.provider, selected.model) : null
+  }
+
+  /** 模型明确不支持看图：硬塞图片块会让整轮请求被拒（她就一个字都回不了），改成一行文字提示。 */
+  async function dropUnseenImages(chat, content) {
+    const count = content.filter((c) => c?.type === 'image').length
+    if (!count || (await canSeeFor(chat)) !== false) return content
+    log.debug(`模型不支持看图：${chat.chatId} 的 ${count} 张图换成文字提示`)
+    return [...content.filter((c) => c?.type !== 'image'), { type: 'text', text: `（这里有 ${count} 张图片，你现在的模型看不了图，只能知道有这么回事）` }]
+  }
+
   async function pushToSession(chat, content, senderId, opts = {}) {
     assertActive()
     const { agent, sessionId } = await agentFor(chat)
@@ -1637,6 +1646,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
         log.warn('扩展模块改提示词出错：', error.message)
       }
     }
+    content = await dropUnseenImages(chat, content)
     assertActive()
     const earlier = saidElsewhere.get(chat.chatId)
     if (earlier?.length) {
@@ -1952,13 +1962,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     joinTopic: (gid) => groupEngaged.set(String(gid), Date.now() + ENGAGE_MS),
     leaveTopic: (gid) => groupEngaged.delete(String(gid)),
     chatOfSession,
-    canSeeImages: async (chat) => {
-      const cfg = getConfig()
-      if (cfg.model?.vision === 'on') return true
-      if (cfg.model?.vision === 'off') return false
-      const selected = targetModel(chat)
-      return selected ? modelVision(dsh, selected.provider, selected.model) : null
-    },
+    canSeeImages: canSeeFor,
     resetSessions,
     lastTextOf: (sessionId) => turnState.get(sessionKey(sessionId))?.lastText || '',
     prevTextOf: (sessionId) => turnState.get(sessionKey(sessionId))?.prevText || '',

@@ -3964,7 +3964,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
       const hasUi = (m) => m.running === 'user' && !m.builtin && !TABS.some((t) => t.id === m.id) && ((m.settings || []).length || m.panel)
       // 写了 tab 的模块嵌进那个内置标签页；没写（或写的页不存在）的单独一页
       const intoTab = (m) => Boolean(m.tab && TABS.some((t) => t.id === m.tab))
-      const extTabs = mods.filter((m) => hasUi(m) && !intoTab(m)).map((m) => ({ id: 'ext:' + m.id, label: m.name, ext: m.id }))
+      const extTabs = mods.filter((m) => hasUi(m) && !intoTab(m)).map((m) => ({ id: 'ext:' + m.id, label: m.name, ext: m.id, flag: m.flag ? `ext.${m.id}.${m.flag}` : '', flagDefault: getPath(m.defaults || {}, m.flag || '') }))
       const tabs = TABS.filter((t) => !TAB_MODS[t.id] || TAB_MODS[t.id].some(running))
       tabs.splice(tabs.findIndex((t) => t.id === 'logs'), 0, ...extTabs)
       const curTab = tabs.find((t) => t.id === tab) || tabs[0]
@@ -3999,7 +3999,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
             mark: (t) => {
               if (tabDirty(t.id)) return h('i', { className: 'dirty', title: '有没保存的改动' })
               if (!t.flag) return null
-              const flag = t.flag === 'group' ? cfg.allow.groups.length > 0 : getPath(cfg, t.flag)
+              const flag = t.flag === 'group' ? cfg.allow.groups.length > 0 : getPath(cfg, t.flag) ?? t.flagDefault
               return h('i', { className: cx('ab-dot', flag && 'ok'), title: flag ? '开着' : '关着' })
             },
           }),
