@@ -116,13 +116,6 @@
             name: '@deepseek-ai/dsh-tool-jobs'
           - id: tool-schedule
             name: '@deepseek-ai/dsh-tool-schedule'
-          # 智能体团队：把活交给成员，这一轮就能结束，她能接着聊；成员发消息回来会叫醒她。
-          # 服务由 DSH 插件页的「智能体团队」开关提供，关着时这个工具不出现，这里不重复注册。
-          - id: tool-agent-team
-            name: '@deepseek-ai/dsh-experimental-tool-agent-team'
-            config:
-              freshProvider: spawn
-              forkProvider: fork
     - id: preset-aurabot-social
       name: '@deepseek-ai/dsh-agent-preset'
       config:

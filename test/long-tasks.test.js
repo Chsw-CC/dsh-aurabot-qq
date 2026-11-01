@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { normalize } from '../src/core/config.js'
 import { presetFor } from '../src/chat/access.js'
 import { rulesText } from '../src/persona/personas.js'
+import { createDangerGuard } from '../src/security/danger.js'
 
 test('新安装默认打开长任务模式，老用户存过的不变', () => {
   assert.equal(normalize({}).longTasks, true)
@@ -18,15 +19,21 @@ test('规则跟着开关走，只进主人私聊', () => {
   assert.doesNotMatch(rulesText('social', normalize({})), /放到后台/)
 })
 
-test('智能体团队只挂在主人私聊的长任务预设，社交预设碰不到', () => {
+test('预设里不挂团队工具：DSH 的开关已经全局挂了，重复注册会让会话建不起来', () => {
   const yml = readFileSync(new URL('../cordis.patch.yml', import.meta.url), 'utf8')
-  const start = (id) => yml.indexOf(`id: preset-aurabot-${id}`)
-  const at = yml.indexOf('dsh-experimental-tool-agent-team')
-  assert.ok(at > start('private-long'), '要在长任务预设里')
-  assert.ok(at < start('social'), '不能进社交预设')
-  assert.equal(yml.split('dsh-experimental-tool-agent-team').length, 2, '只挂一处')
-  assert.doesNotMatch(yml, /dsh-experimental-agent-team'/, '服务由 DSH 的开关提供，这里不重复注册')
+  assert.doesNotMatch(yml, /^\s*(- id:|name:).*agent-team/m)
   assert.match(rulesText('private', normalize({})), /spawn_teammate/)
   assert.doesNotMatch(rulesText('social', normalize({})), /spawn_teammate/)
 })
 
+test('spawn_teammate 只有主人私聊能用', async () => {
+  const guard = createDangerGuard({
+    getConfig: () => ({}), ownerQQ: () => '1',
+    chatOfSession: (id) => ({ own: 'private:1', group: 'group:9', other: 'private:2', sys: 'system:diary' })[id] || '',
+  })
+  const run = (id, name = 'spawn_teammate') => guard.preExecute({ name, agent: { session: { id } } }, async () => ({ kind: 'allow' }))
+  assert.equal((await run('own')).kind, 'allow')
+  for (const id of ['group', 'other', 'sys']) assert.equal((await run(id)).kind, 'deny', id)
+  assert.equal((await run('dsh-normal')).kind, 'allow', 'DSH 自己的会话不管')
+  assert.equal((await run('group', 'qq_send_message')).kind, 'allow')
+})

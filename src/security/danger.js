@@ -72,6 +72,14 @@ export function createDangerGuard ({ getConfig, deliver, chatOfSession, ownerQQ,
    */
   async function preExecute (exec, next) {
     if (disposed) return { kind: 'deny', reason: '插件已卸载，取消旧工具调用。' }
+    // DSH 的智能体团队是全局工具，打开后群聊会话也拿得到；成员有电脑权限，只有主人私聊能用
+    if (String(exec?.name || '') === 'spawn_teammate') {
+      const chatId = chatOfSession ? String(chatOfSession(exec.agent?.session?.id) || '') : ''
+      if (chatId && chatId !== `private:${ownerQQ ? ownerQQ() : ''}`) {
+        log?.warn?.(`已拦下 spawn_teammate（${chatId}）`)
+        return { kind: 'deny', reason: '只有主人私聊才能创建成员。' }
+      }
+    }
     const cfg = getConfig() || {}
     if (!cfg.security || cfg.security.dangerConfirm !== true) return next()
     const tool = String(exec && exec.name || '')
