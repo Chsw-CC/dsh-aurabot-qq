@@ -86,7 +86,7 @@ async function brain({ preset, text, images, callTool }) {
   if (text.includes('没人叫你')) return '[沉默]'
   if (images.length) return '这表情好可爱|||哪来的'
   if (text.includes('[语音]')) return '白米饭yyds'
-  if (text.includes('在吗')) return preset === 'aurabot-private' ? '在呢|||刚睡醒 嗯…' : '在呀'
+  if (text.includes('在吗')) return String(preset).startsWith('aurabot-private') ? '在呢|||刚睡醒 嗯…' : '在呀'
   return '嗯'
 }
 
@@ -164,7 +164,7 @@ test('主人私聊「在吗」：建会话（完整权限 preset）、按 ||| �
   const msgs = sentTo('private', OWNER).map((c) => c.params.message[0].data.text)
   assert.deepEqual(msgs.slice(0, 2), ['在呢', '刚睡醒 嗯…'])
   const turn = fake.turns.at(-1)
-  assert.equal(turn.preset, 'aurabot-private')
+  assert.equal(turn.preset, 'aurabot-private-long')
   assert.ok(mock.sent('set_input_status').some((c) => c.params.user_id === Number(OWNER) && c.params.event_type === 1), '等回复时显示正在输入')
   assert.match(turn.userText, /^【私聊】xiaoming\(10000001\)：在吗/)
   const ws = fake.workspaces[0]
