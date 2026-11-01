@@ -3814,6 +3814,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
           h(Row, { label: '机器人 QQ 号', hint: '强烈建议用小号：非官方 QQ 工具有被限制的风险' }, f.text('botQQ', { placeholder: '例如 123456789' })),
           h(Row, { label: '你的 QQ 号（主人）', hint: '群管、操作电脑这些只听主人的' }, f.text('ownerQQ', { placeholder: '你的大号' })),
           h(Row, { label: 'ta怎么称呼你' }, f.text('ownerName', { placeholder: '主人' })),
+          h(Row, { label: '工作区文件夹', hint: 'ta在 QQ 会话里读写文件的地方，C 盘空间紧就放到别的盘，比如 D:\\Aurabot\\qq-chats。填完整路径，留空用默认位置。聊天开始后再改，已有的会话不会跟着搬' }, f.text('workspaceDir', { size: 'wide', placeholder: st.workspaceDir || '' })),
           draft.botQQ && draft.ownerQQ && draft.botQQ === draft.ownerQQ ? h('div', { className: 'ab-note err' }, '机器人号和主人号不能是同一个。') : null),
         // 1. SnowLuma，或接已有的 OneBot 机器人
         external ? h('div', null,
