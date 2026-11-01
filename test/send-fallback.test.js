@@ -18,7 +18,7 @@ function setup(t, failure, { ttsFailure = false } = {}) {
   const cfg = normalize({ enabled: true, dryRun: false, workspaceDir: dir, files: { enabled: true }, voice: { enabled: true }, stickers: { enabled: false } })
   const hub = createHub({ dsh: {}, getConfig: () => cfg,
     log: Object.fromEntries(['info', 'warn', 'debug', 'error'].map((k) => [k, (...v) => logs.push(v.join(' '))])),
-    onebot: { async call(action, params) { calls.push({ action, params }); if (calls.length === 1) throw failure; return { message_id: 42 } } },
+    onebot: { async call(action, params, opts) { calls.push({ action, params, opts }); if (calls.length === 1) throw failure; return { message_id: 42 } } },
     tts: { async speak() { if (ttsFailure) throw new Error('合成失败'); return { file, engine: 'test' } } },
   })
   t.after(() => {
@@ -86,3 +86,13 @@ test('语音合成失败时仍然回落到文字', async (t) => {
   assert.equal(sent[0].message[0].type, 'text')
   assert.equal(result.failed, 0)
 })
+
+test('语音传不上去：网关报 highway 失败（带 timeout 字样）也改发文字，语音等够两分钟', async (t) => {
+  const s = setup(t, new OneBotError('send_private_msg', { status: 'failed', retcode: 1200, message: 'highway upload transport failed: highway response read timeout (peer idle)' }))
+  const result = await s.hub.deliver('private:1', '<voice>你好</voice>')
+  assert.equal(s.calls[0].params.message[0].type, 'record')
+  assert.equal(s.calls[0].opts?.timeoutMs, 120000)
+  assert.equal(s.calls.at(-1).params.message.at(-1).type, 'text')
+  assert.equal(result.failed || 0, 0)
+})
+

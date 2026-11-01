@@ -498,7 +498,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     return kind === 'group' ? { kind: 'group', id } : kind === 'private' ? { kind: 'private', id } : null
   }
 
-  async function sendSegments(chatId, message, note, { force = false, isCurrent = null, throwOnError = false } = {}) {
+  async function sendSegments(chatId, message, note, { force = false, isCurrent = null, throwOnError = false, timeoutMs } = {}) {
     if (disposed) return null
     const cfg = getConfig()
     const tgt = targetOf(chatId)
@@ -531,7 +531,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     const action = tgt.kind === 'group' ? 'send_group_msg' : 'send_private_msg'
     const params = tgt.kind === 'group' ? { group_id: Number(tgt.id), message } : { user_id: Number(tgt.id), message }
     try {
-      const r = await onebot.call(action, params)
+      const r = await onebot.call(action, params, timeoutMs ? { timeoutMs } : undefined)
       if (r && r.message_id !== undefined) {
         sentIds.add(String(r.message_id))
         if (sentIds.size > 500) sentIds.delete(sentIds.values().next().value)
@@ -578,7 +578,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     // QQ 客户端不支持「引用 / @ + 语音」同一条消息：语音条一律单独成条（issue #103）。
     if (replyId || userId) log.debug(`语音条不能带引用/@（QQ 限制），单独发：${chatId}`)
     try {
-      const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`, { throwOnError: true })
+      const r = await sendSegments(chatId, [{ type: 'record', data: { file: 'base64://' + b64 } }], `[语音·${engine}] ${text.slice(0, 40)}`, { throwOnError: true, timeoutMs: FILE_TIMEOUT_MS })
       if (r || getConfig().dryRun || !getConfig().enabled) { bump('voice'); return true }
       const message = '语音没有发送'
       log.warn(message)
