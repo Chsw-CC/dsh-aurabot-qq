@@ -1780,7 +1780,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
           h(Row, { label: '追问', hint: 'ta问了你一句、你 15~40 分钟没回，偶尔轻轻追一句（「人呢」之类），每句最多追一次' }, f.sw('speakUp.nudge')),
           h(Row, { label: '多久没聊才找你' }, f.num('speakUp.idleMinutes', { min: 5 }), h('span', { className: 'ab-muted' }, '分钟')),
           h(Row, { label: '两次之间隔', hint: '在这个范围里随机' }, f.num('speakUp.minIntervalMinutes', { min: 5 }), h('span', { className: 'ab-muted' }, '到'), f.num('speakUp.maxIntervalMinutes', { min: 5 }), h('span', { className: 'ab-muted' }, '分钟')),
-          h(Row, { label: '主动搭话白名单', hint: '除了你，还会主动找这些人，每人单独算次数。也可以在 QQ 里发 /speak add QQ 号。名单里的人要在私聊白名单里，才能回ta' }, f.list('speakUp.allow', { placeholder: '每行一个 QQ 号', numbers: true })),
+          h(Row, { label: '主动搭话白名单', hint: '除了你，还会主动找这些人，每人单独算次数。目的引擎开着时也按这份名单找人，只用和对方的私聊和关于对方的记忆。也可以在 QQ 里发 /speak add QQ 号。名单里的人要在私聊白名单里，才能回ta' }, f.list('speakUp.allow', { placeholder: '每行一个 QQ 号', numbers: true })),
           h(Row, { label: '每天最多', hint: '每个人单独算；留空就是 20，不封顶' }, f.num('speakUp.maxPerDay', { min: 0 }), h('span', { className: 'ab-muted' }, '次')),
           h(Row, { label: 'ta醒着的时间', hint: '这段时间外不打扰你' }, f.num('speakUp.awakeFrom', { min: 0, max: 23 }), h('span', { className: 'ab-muted' }, '点到'), f.num('speakUp.awakeTo', { min: 1, max: 24 }), h('span', { className: 'ab-muted' }, '点')),
           h('div', { className: 'ab-flex', style: { marginTop: 10 } },
