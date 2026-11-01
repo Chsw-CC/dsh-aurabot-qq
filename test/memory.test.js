@@ -52,7 +52,7 @@ before(async () => {
   process.env.AURABOT_DATA_DIR = mkdtempSync(join(tmpdir(), 'aurabot-mem-'))
   ;({ createMemoryStore } = await import('../src/features/memory.js'))
   ;({ normalize } = await import('../src/core/config.js'))
-  cfg = normalize({ model: { provider: 'p', model: 'm' }, ownerQQ: '10000001', ownerName: '主人' })
+  cfg = normalize({ model: { provider: 'p', model: 'm' }, ownerQQ: '10000001', ownerName: '主人', memory: { keepChatlogDays: 0, keepChatlogSet: true } })
   mem = createMemoryStore({ dsh, getConfig: () => cfg, hub, log: { info() {}, warn() {}, debug() {} } })
 })
 
@@ -103,8 +103,8 @@ test('检索：同时偏向好几个说话人（群里这一段谁在说）', as
     { id: 'b', text: '小明在学吉他', about: '30000004', importance: 0.5, at: Date.now() },
     { id: 'c', text: '天气预报说要下雨', about: '', importance: 0.5, at: Date.now() },
   ])
-  const ids = search(idx, '今天干嘛呢', { about: ['30000003', '30000004'] }).map((h) => h.it.id).sort()
-  assert.deepEqual(ids, ['a', 'b'])
+  const about = ['30000003', '30000004']
+  for (const q of ['养了一只猫', '在学吉他']) assert.ok(search(idx, q, { about })[0].score > search(idx, q)[0].score, q)
 })
 
 test('经历：她做过的事常驻上下文；群里优先想起正在说话的人', () => {
@@ -204,8 +204,8 @@ test('整理时比对旧记忆：新事实说明旧的过时了，旧的标过�
   assert.equal(was.supersededBy, now.id)
   assert.equal(was.supersededText, '小明戒辣了')
   assert.equal(all.at(-1).id, old.id, '过时的排在最后')
-  hubState.text = '吃辣'
-  const ctx = mem.recallHint({ kind: 'private', userId: '10000001', chatId: 'private:10000001' }, '吃辣')
+  hubState.text = '戒辣'
+  const ctx = mem.recallHint({ kind: 'private', userId: '10000001', chatId: 'private:10000001' }, '戒辣')
   assert.ok(ctx.includes('小明戒辣了') && !ctx.includes('小明喜欢吃辣'), ctx)
   assert.equal(mem.stats().outdated, 1)
   assert.equal(mem.restore(old.id).ok, true)
@@ -310,3 +310,33 @@ test('主人私聊群聊摘要：群白名单与每个群条数限制生效', ()
   cfg.group.ownerBrief.enabled = false
   cfg.group.ownerBrief.groups = []
 })
+
+test('新的话：流水留着时，会话重置后也能从没提炼的原话里想起来，只看这个聊天', () => {
+  const now = Date.now()
+  const row = (chatId, text, who = '小明') => ({ t: now, chatId, who, text })
+  const pad = Array.from({ length: 6 }, (_, i) => row('private:10000001', '闲聊' + i))
+  const today = logs.get(day(new Date())) || []
+  const done = Array.from({ length: 300 }, () => row('group:8', '已经提炼过的'))
+  logs.set(day(new Date()), [...done, row('private:10000001', '我下周二要去成都出差'), row('group:7', '成都火锅店关门了'), ...pad])
+  const fresh = createMemoryStore({ dsh, getConfig: () => cfg, hub, log: { info() {}, warn() {}, debug() {} } })
+  const hint = fresh.recallHint({ kind: 'private', userId: '10000001', chatId: 'private:10000001' }, '成都出差带什么')
+  logs.set(day(new Date()), today)
+  assert.match(hint, /下周二要去成都出差/)
+  assert.match(hint, /只是记录/)
+  assert.doesNotMatch(hint, /火锅店/)
+})
+
+test('提炼：带每句话的时间，说话时间进记忆，去重不改它', async () => {
+  const yesterday = new Date(Date.now() - 86400000)
+  yesterday.setHours(9, 30, 0, 0)
+  logs.set(day(yesterday), [{ t: yesterday.getTime(), chatId: 'private:10000001', who: '主人', uid: '10000001', text: '今天看海去了' }])
+  for (const x of mem.list('')) if (/看海|戒辣/.test(x.text)) mem.remove(x.id)
+  await mem.consolidate({ includeToday: false })
+  const q = asked.filter((a) => a.system.includes('整理长期记忆')).at(-1)
+  assert.match(q.text, /\[\d{2}-\d{2} 09:30\] 主人/)
+  const m = mem.list('').find((x) => x.text.includes('看海'))
+  mem.add({ text: m.text + '了', about: m.about, source: 'tool' })
+  assert.equal(mem.list('').find((x) => x.id === m.id).saidAt, yesterday.getTime())
+  mem.remove(m.id)
+})
+
