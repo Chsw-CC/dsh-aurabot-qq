@@ -96,3 +96,26 @@ export function decideGroupReply(p) {
   if (rand() < chance) return { reply: true, mode: 'interject', reason: `话题相关，插一句（相关度 ${rel.toFixed(2)}）` }
   return { reply: false, mode: 'none', reason: '这次不插话' }
 }
+
+/**
+ * 这一批要自动引用并 @ 谁。只有一个人在说话时才自动：多人时她回的可能是别人的话，
+ * 自动 @ 会把话安到错的人头上（#160）；想回某一条她自己会用编号引用。
+ */
+export function pickAutoReply(fresh) {
+  if (new Set(fresh.map((x) => x.uid)).size !== 1) return null
+  const target = fresh.filter((x) => x.direct).at(-1)
+  return target ? { mid: target.mid, uid: target.uid } : null
+}
+
+/** 同一段里有重名的人时提醒她按 QQ 号分：名字一样时她很容易忽略括号（#160）。 */
+export function sameNameNote(lines) {
+  const byName = new Map()
+  for (const x of lines) {
+    if (!x.nick || !x.uid) continue
+    if (!byName.has(x.nick)) byName.set(x.nick, new Set())
+    byName.get(x.nick).add(String(x.uid))
+  }
+  const dup = [...byName].filter(([, ids]) => ids.size > 1).map(([name]) => `「${name}」`)
+  return dup.length ? `【注意：${dup.join('、')}这个名字不止一个人在用，他们是不同的人，按括号里的 QQ 号分清楚，别把一个人的事安到另一个人头上。】
+` : ''
+}
