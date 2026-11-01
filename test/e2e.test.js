@@ -493,7 +493,7 @@ test('普通照片不收进表情库', async () => {
   assert.equal(mock.sent('add_custom_face').length, 1, '数量没变')
 })
 
-test('语音：回复里的 <voice> 变成 QQ 语音条', async () => {
+test('语音：回复里的 <voice> 变成 QQ 语音条', { skip: process.platform !== 'win32' && '依赖 Windows TTS 引擎' }, async () => {
   mock.push(priv(OWNER, text('晚安')))
   await until(() => sentTo('private', OWNER).some((c) => c.params.message[0].type === 'record'), 20000)
   const rec = sentTo('private', OWNER).find((c) => c.params.message[0].type === 'record')
@@ -750,7 +750,7 @@ test('语音发不出去时退回成发文字', async () => {
   mock.state.failRecord = false
 })
 
-test('明确要语音但她只打了字：插件强制转成语音', async () => {
+test('明确要语音但她只打了字：插件强制转成语音', { skip: process.platform !== 'win32' && '依赖 Windows TTS 引擎' }, async () => {
   const n = sentTo('private', OWNER).length
   mock.push(priv(OWNER, text('用语音说你好')))
   await until(() => sentTo('private', OWNER).slice(n).some((c) => c.params.message[0].type === 'record'), 20000)
