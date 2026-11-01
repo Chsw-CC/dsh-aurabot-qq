@@ -130,7 +130,9 @@ export function whenText(at, now = Date.now()) {
 
 /** 想起来的一条记忆怎么写给她：[什么时候] [关于谁] 内容。 */
 export function memoryLine(it, now = Date.now()) {
-  return `[${whenText(it.at, now)}] ` + (it.aboutName ? `[${it.aboutName}] ` : '') + it.text
+  // 名字可能重名，带上 QQ 号才分得清是谁的事（#160）
+  const qq = /^\d+$/.test(String(it.about || '')) && !String(it.aboutName || '').includes(String(it.about)) ? `(${it.about})` : ''
+  return `[${whenText(it.at, now)}] ` + (it.aboutName ? `[${it.aboutName}${qq}] ` : '') + it.text
 }
 
 /**
@@ -416,8 +418,8 @@ export function createMemoryStore({ dsh, getConfig, hub, log }) {
     const parts = []
     // 对这个人（群里是正在说话的几个人）的印象，不用等关键词碰上
     const people = chat.kind === 'group' ? (hub?.speakersOf?.(sessionId) || []).slice(0, 3) : chat.userId ? [chat.userId] : []
-    const profs = people.map((qq) => profileOf(qq)).filter(Boolean)
-    if (profs.length) parts.push('（你对' + (chat.kind === 'group' ? '正在说话的人' : '对方') + '的印象：' + profs.map((p) => (chat.kind === 'group' && p.name ? p.name + '——' : '') + p.text).join('；') + '）')
+    const profs = people.map((qq) => { const p = profileOf(qq); return p && { ...p, qq } }).filter(Boolean)
+    if (profs.length) parts.push('（你对' + (chat.kind === 'group' ? '正在说话的人' : '对方') + '的印象：' + profs.map((p) => (chat.kind === 'group' && p.name ? `${p.name}(${p.qq})——` : '') + p.text).join('；') + '）')
     const ins = insightsOf(personKey(chat))
     if (ins.length) parts.push('（和' + (chat.kind === 'group' ? '这个群' : '对方') + '相处的经验，照着做就好，不用说出来：' + ins.map((x) => x.text).join('；') + '）')
     const sty = styleOf(personKey(chat))

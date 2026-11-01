@@ -14,5 +14,6 @@ import bili from './bili/index.js'
 import song from './song/index.js'
 import profile from './profile/index.js'
 import contacts from './contacts/index.js'
+import video from './video/index.js'
 
-export const BUILTINS = [stickers, voice, mood, memory, qqTools, imagegen, diary, qzoneSocial, speakup, purpose, bili, song, profile, contacts]
+export const BUILTINS = [stickers, voice, mood, memory, qqTools, imagegen, diary, qzoneSocial, speakup, purpose, bili, song, profile, contacts, video]

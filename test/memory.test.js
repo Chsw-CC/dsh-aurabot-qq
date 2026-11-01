@@ -158,7 +158,7 @@ test('想起来的记忆带时间；最近想起了什么有记录（含想不�
   assert.equal(whenText(now - 400 * 86400_000, now).startsWith('去年'), true)
   hubState.text = '阿花最近怎么样'
   const hint = mem.recallHint({ kind: 'private', userId: '30000003', chatId: 'private:30000003' }, '阿花最近怎么样')
-  assert.ok(hint.includes('[今天] [阿花] 阿花'), hint)
+  assert.ok(hint.includes('[今天] [阿花(30000003)] 阿花'), hint)
   const log = mem.recalls()[0]
   assert.equal(log.where, 'private:30000003')
   assert.ok(log.hits.length && log.hits[0].why.length)
@@ -225,7 +225,7 @@ test('人物小档案：按这个人的记忆写，聊天时常驻；群里带�
   assert.match(p, /你对对方的印象：小明是主人/)
   hubState.speakers = ['10000001']
   const g = mem.contextFor({ kind: 'group', groupId: '7', chatId: 'group:7' }, 's7')
-  assert.match(g, /你对正在说话的人的印象：小明——小明是主人/)
+  assert.match(g, /你对正在说话的人的印象：小明\(10000001\)——小明是主人/)
   assert.equal(await mem.buildProfile('99999999'), false, '记忆太少不写')
   hubState.text = ''
   hubState.speakers = []
