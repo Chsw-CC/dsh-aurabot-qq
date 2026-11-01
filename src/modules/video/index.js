@@ -20,7 +20,7 @@ export default {
 
     async function deliver(chatId, file) {
       try {
-        await hub.sendSegments(chatId, [{ type: 'video', data: { file: pathToFileURL(file).href } }], '[视频]')
+        await hub.sendSegments(chatId, [{ type: 'video', data: { file: pathToFileURL(file).href } }], '[视频]', { throwOnError: true, timeoutMs: 120_000 })
       } catch (error) {
         api.log.warn('按视频发送失败，改发文件：', error.message)
         await hub.sendFile(chatId, file)
