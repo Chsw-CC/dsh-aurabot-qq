@@ -19,6 +19,7 @@ import { registerSecret, redact } from './core/redact.js'
 import { createOneBotClient } from './onebot/client.js'
 import { createSnowLumaManager, DOWNLOAD_PAGE } from './snowluma/manager.js'
 import { createHub, workspaceDirOf } from './chat/hub.js'
+import { grantOwner, moveWorkspace, realWorkspace } from './core/workspace-move.js'
 import { createLocal, fileOf, toImageBuffer } from './local/local.js'
 import { createGroupRoles } from './chat/group-roles.js'
 import { defaultModel, askModel, modelReasoning, modelVision, clearReasoningCache, clearVisionCache } from './core/llm.js'
@@ -535,6 +536,7 @@ export function apply(ctx) {
       song: use('song')?.status?.() ?? null,
       sessions: hub.sessions(),
       workspaceDir: workspaceDirOf(cfg),
+      workspaceReal: realWorkspace(workspaceDirOf(cfg)),
       personas: listPersonas(),
       modules: mods.status(),
       bridge: { dshTools: cfg.bridge.dshTools, http: cfg.bridge.http, hasToken: Boolean(cfg.bridge.token), tools: bridge.deniedTools(), toolsService: Boolean(ctx.get?.('tools')) },
@@ -848,6 +850,14 @@ export function apply(ctx) {
   // 控制台密码：看一眼（打开 SnowLuma 自己的控制台要用）、自己设一个
   route('/snowluma/password', async () => ({ ok: true, password: snowluma.password(), auto: cfg.snowluma.passwordAuto }))
   route('/snowluma/set-password', async (req) => snowluma.setPassword(String((await readBody(req)).password || '')))
+  route('/workspace/move', async (req) => {
+    const r = moveWorkspace(workspaceDirOf(cfg), (await readBody(req)).to)
+    if (r.ok) {
+      await grantOwner(r.target, log)
+      log.info(r.message)
+    }
+    return r
+  })
   route('/setup/done', async (req) => {
     const body = await readBody(req)
     if (!cfg.botQQ || !cfg.ownerQQ || cfg.botQQ === cfg.ownerQQ) return { ok: false, message: '先填好不同的机器人 QQ 和你的 QQ' }

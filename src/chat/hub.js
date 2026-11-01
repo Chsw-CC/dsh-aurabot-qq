@@ -27,6 +27,7 @@ import { cleanContent, cleanText } from '../core/text.js'
 import { createRecentMedia } from './recent-media.js'
 import { createTitleFilter } from './title-filter.js'
 import { isDefiniteFailure } from '../onebot/client.js'
+import { grantOwner } from '../core/workspace-move.js'
 
 // QQ 会话的工作区目录，第一次收到消息时自动创建。面板「连接」页能改（config.workspaceDir，#32）；
 // 没填就用环境变量 AURABOT_WORKSPACE，再没有：老安装沿用 C:\Aurabot\qq-chats，新安装放在用户目录下（不用往 C 盘根目录写）
@@ -249,6 +250,7 @@ export function createHub({ dsh, getConfig, log, onebot, stickers, tts, buildToo
     if (!reg) throw new Error('宿主没有 workspaceRegistry')
     const dir = workspaceDirOf(getConfig())
     mkdirSync(dir, { recursive: true })
+    grantOwner(dir, log) // 不等它：模型回话要好几秒，够它先做完，这里多等一拍会让并发建会话的判断错位
     const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase()
     let ws = reg.list().find((w) => norm(w.path) === norm(dir))
     if (!ws) {
