@@ -3295,6 +3295,99 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
       const [hot, setHot] = useState(null)
       const [cookieText, setCookieText] = useState('')
       const load = () => get('/heybox/state').then(setS)
+      // ── 话题/分区下拉 + 每天每篇排期 ──
+      const [topicKw, setTopicKw] = useState({})
+      const splitHashtags = (v) => String(v ?? '').split(/[\s,，、]+/).filter(Boolean)
+      const joinHashtags = (arr) => arr.filter(Boolean).join(',')
+      const topicOpts = (s && Array.isArray(s.topicsList)) ? s.topicsList : []
+      const actOpts = (s && Array.isArray(s.actsList)) ? s.actsList : []
+      const selFor = (i) => {
+        const dp = draft.heybox && draft.heybox.dailyPosts && draft.heybox.dailyPosts[i]
+        return splitHashtags(dp && dp.hashtagsText)
+      }
+      const findAct = (n) => (actOpts || []).find(function (t) { return t.name === n && t.isAct })
+      const countSel = function (i) {
+        const parts = selFor(i)
+        const actN = parts.filter(findAct).length
+        return { act: actN, plain: parts.length - actN }
+      }
+      // 选话题：活动 / 普通互斥；活动只能 1 个，普通最多 3 个
+      const toggleTopic = (i, name) => setDraft(function (d) {
+        const hb = d.heybox || {}
+        const list = (Array.isArray(hb.dailyPosts) ? hb.dailyPosts : []).slice()
+        const item = { ...(list[i] || {}) }
+        const parts = splitHashtags(item.hashtagsText)
+        const wantAct = Boolean((actOpts || []).find(function (t) { return t.name === name && t.isAct }))
+        const isActIn = function (n) { return Boolean((actOpts || []).find(function (t) { return t.name === n && t.isAct })) }
+        let nextVals
+        if (parts.includes(name)) {
+          nextVals = parts.filter(function (x) { return x !== name })
+        } else if (wantAct) {
+          nextVals = [name]
+        } else {
+          const plainOnly = parts.filter(function (x) { return !isActIn(x) })
+          if (plainOnly.length >= 3) { toast('普通话题最多选 3 个', 'err'); return d }
+          nextVals = plainOnly.concat([name])
+        }
+        item.hashtagsText = joinHashtags(nextVals)
+        item.hashtags = nextVals.slice()
+        list[i] = item
+        return { ...d, heybox: { ...hb, dailyPosts: list } }
+      })
+      const fmtHeat = function (n) {
+        n = Number(n) || 0
+        if (n >= 100000000) return (n / 100000000).toFixed(1) + '亿'
+        if (n >= 10000) return (n / 10000).toFixed(1) + '万'
+        return String(n)
+      }
+      const renderSelSummary = function (i) {
+        const c = countSel(i)
+        if (c.act > 0) return h('span', { className: 'ab-small', style: { whiteSpace: 'nowrap', color: 'var(--ab-ok)' } }, '已选创作活动 ' + c.act + '/1')
+        if (c.plain > 0) {
+          const color = c.plain >= 3 ? 'var(--ab-warn)' : 'var(--ab-ok)'
+          return h('span', { className: 'ab-small', style: { whiteSpace: 'nowrap', color: color } }, '已选普通话题 ' + c.plain + '/3')
+        }
+        return h('span', { className: 'ab-small ab-muted', style: { whiteSpace: 'nowrap' } }, '未选（活动 / 普通各选一种）')
+      }
+      // 搜索 + 分组渲染（创作活动在前）
+      const renderTopicGroups = function (i) {
+        const kw = String(topicKw[i] || '').trim().toLowerCase()
+        const all = (actOpts || []).filter(function (t) {
+          if (!kw) return true
+          return String(t.name).toLowerCase().indexOf(kw) >= 0 || String(t.actTitle || '').toLowerCase().indexOf(kw) >= 0
+        })
+        if (!all.length) return h('span', { className: 'ab-small ab-muted' }, (actOpts || []).length ? '没匹配到话题' : '还没拉到话题，点上面「刷新话题」')
+        const cur = selFor(i)
+        const groups = [
+          { key: 'act', title: '创作活动', items: all.filter(function (t) { return t.isAct }) },
+          { key: 'plain', title: '普通话题', items: all.filter(function (t) { return !t.isAct }) },
+        ]
+        return h('div', null, groups.map(function (g) {
+          if (!g.items.length) return null
+          return h('div', { key: g.key, style: { marginTop: 6 } },
+            h('div', { className: 'ab-small ab-muted', style: { marginBottom: 4 } }, g.title + '（' + g.items.length + '）'),
+            h('div', { className: 'ab-flex', style: { flexWrap: 'wrap', gap: 6 } },
+              g.items.slice(0, 24).map(function (t) {
+                const on = cur.indexOf(t.name) >= 0
+                return h(Btn, { key: t.id, small: true, kind: on ? 'primary' : 'ghost', onClick: function () { toggleTopic(i, t.name) } },
+                  (on ? '✓ ' : '') + '#' + t.name + '#  ' + fmtHeat(t.contentNum))
+              }),
+              g.items.length > 24 ? h('span', { className: 'ab-small ab-muted' }, '还有 ' + (g.items.length - 24) + ' 个，用搜索缩小范围') : null)
+          )
+        }))
+      }
+      const addPostSlot = () => setDraft(function (d) {
+        const hb = d.heybox || {}
+        const list = Array.isArray(hb.dailyPosts) ? hb.dailyPosts : []
+        if (list.length >= 5) { toast('最多 5 篇', 'err'); return d }
+        return { ...d, heybox: { ...hb, dailyPosts: [...list, { style: 'mix', topic: '', hashtagsText: '', hashtags: [], wordsMin: 0, wordsMax: 0, hint: '' }] } }
+      })
+      const removePostSlot = (i) => setDraft(function (d) {
+        const hb = d.heybox || {}
+        const list = Array.isArray(hb.dailyPosts) ? hb.dailyPosts.slice() : []
+        list.splice(i, 1)
+        return { ...d, heybox: { ...hb, dailyPosts: list } }
+      })
       useEffect(() => { load() }, [])
       const act = (path, label, body) => async () => {
         setBusy(label)
@@ -3467,13 +3560,35 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
               { value: 'diary', label: '大肥鱼日记', desc: '第一人称随手记，跟空间日记一个味，120-300字' },
               { value: 'news', label: '热搜文', desc: '报道新闻体，摆具体数字，200-800字' },
               { value: 'mix', label: '肥鱼热搜', desc: '用日记口吻写热搜，150-500字' },
+              { value: 'deal', label: '每日羊毛', desc: '游戏折扣 / 限免 / 黑盒活动，带直达链接，150-450字' },
             ], { width: 220 })),
+          h(Row, { label: '发帖字数范围', hint: '留 0 = 用所选风格自带的字数。填了就覆盖所有风格' },
+            h('div', { className: 'ab-flex' },
+              f.num('heybox.postWordsMin', { min: 0, max: 2000 }), h('span', { className: 'ab-muted' }, '–'),
+              f.num('heybox.postWordsMax', { min: 0, max: 3000 }), h('span', { className: 'ab-muted' }, '字')),
+          ),
+          h(Row, { label: '分区怎么选', hint: '自动 = 按正文里的游戏名/分区名挑，挑不到回落默认分区；手动 = 永远用默认分区' },
+            f.choices('heybox.topicMode', [
+              { value: 'manual', label: '手动', desc: '总是用默认分区' },
+              { value: 'auto', label: '自动', desc: '按内容挑，挑不到回落默认' },
+            ], { width: 180 })),
           h(Row, { label: '发帖默认分区', hint: '文章帖必须挂分区，否则会报「请添加分区」。这三个是实测存在的' },
             f.select('heybox.defaultTopic', [
               { value: 7214, label: '盒友杂谈', desc: '最常用，什么都能聊' },
               { value: 18745, label: '数码硬件', desc: '显卡、笔记本、外设' },
               { value: 806933, label: 'AI', desc: 'AI 相关，容易涨浏览' },
-            ], { width: 200 })),
+              { value: 549999, label: '校园生活', desc: '学生党话题' },
+              { value: 73907, label: '沙雕日常', desc: '搞笑日常' },
+              { value: 425422, label: 'Steam', desc: 'Steam 促销 / 游戏库' },
+            ], { width: 220 })),
+          s && s.topicsCache ? h(Row, { label: '分区表', hint: '每天自动拉一次，不用手动管' },
+            h('div', { className: 'ab-flex' },
+              h('span', { className: 'ab-small ab-muted' }, (s.topicsCache.count || 0) + ' 个分区 · ' + (s.topicsCache.cached ? '今天已更新' : '刚更新')),
+              h(Btn, { small: true, onClick: () => post('/heybox/topics/refresh').then((r) => { toast(r.message || '已刷新', 'ok'); load() }).catch(() => toast('刷新失败', 'err')) }, '刷新分区'))) : null,
+          s && s.actsCache ? h(Row, { label: '话题表', hint: '创作活动（有奖励，排最前）和普通话题，都带热度。每天自动更新一次' },
+            h('div', { className: 'ab-flex' },
+              h('span', { className: 'ab-small ab-muted' }, '活动 ' + (s.actsCache.actCount || 0) + ' 个 · 普通 ' + (s.actsCache.plainCount || 0) + ' 个'),
+              h(Btn, { small: true, onClick: () => post('/heybox/acts/refresh').then((r) => { toast(r.message || '已刷新', 'ok'); load() }).catch(() => toast('刷新失败', 'err')) }, '刷新话题'))) : null,
           s ? h(Row, { label: '今天已经用掉', hint: '到 0 就等明天，或者手动清零（重启一次会话不会重置）' },
             h('div', { className: 'ab-flex' },
               h('span', { className: 'ab-small ab-muted' },
@@ -3483,6 +3598,56 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复ta
                 ' · 帖 ' + (quota.post || 0) + '/' + (limits.maxPostsPerDay || 0) + ' · 分享 ' + (quota.share || 0) + '/' + (limits.shareDaily || 0)),
               h(Btn, { small: true, kind: 'ghost', onClick: act('/heybox/clear-quota', 'quota') }, busy === 'quota' ? '清零中…' : '清零')))
             : null,
+        ),
+        h(Card, {
+          title: '每天发多篇：每篇各管各的',
+          desc: '配了就按篇数来：今天第 1 篇用第 1 项、第 2 篇用第 2 项……排期用完或没配就回到上面的全局设置。每篇可以单独指定风格、分区、话题、字数。',
+          right: h('div', { className: 'ab-flex' },
+            h('span', { className: 'ab-small ab-muted' }, '已发 ' + ((s && s.postPlan && s.postPlan.done) || 0) + ' / ' + (((draft.heybox && draft.heybox.dailyPosts) || []).length)),
+            h(Btn, { small: true, kind: 'primary', onClick: addPostSlot }, '新增一篇')),
+        },
+          ((draft.heybox && draft.heybox.dailyPosts) || []).length === 0
+            ? h(Empty, { icon: '📅', text: '还没配排期。点右上角「新增一篇」，就能让今天第几篇发什么各不相同。' })
+            : h('div', null, ((draft.heybox && draft.heybox.dailyPosts) || []).map(function (p, i) {
+                const done = ((s && s.postPlan && s.postPlan.done) || 0) > i
+                return h('div', { key: i, style: { marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--ab-line)' } },
+                  h(Row, { label: '第 ' + (i + 1) + ' 篇' + (done ? '（已发）' : '') },
+                    h('div', { className: 'ab-flex' },
+                      f.select('heybox.dailyPosts.' + i + '.style', [
+                        { value: '', label: '跟全局', desc: '用上面的默认风格' },
+                        { value: 'diary', label: '大肥鱼日记' },
+                        { value: 'news', label: '热搜文' },
+                        { value: 'mix', label: '肥鱼热搜' },
+                        { value: 'deal', label: '每日羊毛' },
+                      ], { width: 150 }),
+                      h(Btn, { small: true, kind: 'ghost', onClick: function () { removePostSlot(i) } }, '删')),
+                  ),
+                  h(Row, { label: '分区', hint: '留空 = 按上面的模式走（手动用默认 / 自动按内容挑）' },
+                    f.select('heybox.dailyPosts.' + i + '.topic', [
+                      { value: '', label: '跟全局', desc: '' },
+                    ].concat((topicOpts || []).map(function (t) { return { value: t.id, label: t.name + (t.game ? '（游戏）' : ''), desc: t.id } })),
+                    { width: 200 })),
+                  h(Row, { label: '字数' },
+                    h('div', { className: 'ab-flex' },
+                      f.num('heybox.dailyPosts.' + i + '.wordsMin', { min: 0, max: 2000 }), h('span', { className: 'ab-muted' }, '–'),
+                      f.num('heybox.dailyPosts.' + i + '.wordsMax', { min: 0, max: 3000 }), h('span', { className: 'ab-muted' }, '字')),
+                  ),
+                  h(Row, { label: '话题', hint: '创作活动和普通话题只能选一种：选活动会自动清掉普通（限 1 个），选普通会清掉活动（最多 3 个）' },
+                    h('div', { style: { width: '100%' } },
+                      h('div', { className: 'ab-flex', style: { marginBottom: 6 } },
+                        h('input', {
+                          className: 'ab-input sm', style: { flex: 1, minWidth: 120 },
+                          placeholder: '搜话题关键词，如 游戏 / 养鱼 / steam',
+                          value: (topicKw[i] || ''),
+                          onChange: function (e) { const v = e.target.value; setTopicKw(function (m) { const n = { ...m }; n[i] = v; return n }) },
+                        }),
+                        renderSelSummary(i)),
+                      renderTopicGroups(i)),
+                  ),
+                  h(Row, { label: '本篇额外要求', hint: '一句话写进她的提示词，比如「写养鱼日常」「必须带 Steam 折扣链接」' },
+                    f.text('heybox.dailyPosts.' + i + '.hint', { placeholder: '可留空', width: 300 })),
+                )
+              })),
         ),
         h(Card, {
           title: '热榜预览', right: h('div', { className: 'ab-flex' },
