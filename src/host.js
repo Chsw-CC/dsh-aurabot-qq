@@ -29,6 +29,7 @@ import { parseCommand, runCommand, createMutes, commandList } from './chat/comma
 import { listPersonas, readPersona, savePersona, deletePersona, currentPersonaText, rulesText, seedPersonas } from './persona/personas.js'
 import { createModules, API_VERSION } from './core/modules.js'
 import { createCommunity } from './core/community.js'
+import { createApprovalRelay } from './security/approval.js'
 import { applyPendingRestore, cancelRestore, createBackup, listBackups, pendingModules, pendingRestore, saveUpload, setPendingModules, stageRestore } from './core/backup.js'
 import { cleanText } from './core/text.js'
 import { createBridge } from './core/bridge.js'
@@ -120,6 +121,7 @@ export function apply(ctx) {
   let pendingEvents = []
   let hub = null
   let dangerGuard = null // 危险命令确认（security.dangerConfirm 开着才生效）
+  let approvalRelay = null // DSH 要授权时在 QQ 私聊问主人（approvalViaQQ 开着才生效）
   async function checkLogin() {
     verifying = true
     pendingEvents = []
@@ -166,6 +168,7 @@ export function apply(ctx) {
             ? ev.message.filter((seg) => seg && seg.type === 'text').map((seg) => String(seg.data?.text || '')).join('')
             : ''
           if (dangerGuard.handleReply(`private:${ev.user_id}`, ev.user_id, text)) return
+          if (approvalRelay?.handleReply(`private:${ev.user_id}`, ev.user_id, text)) return
         }
         hub.onMessage(ev).catch((error) => log.error('处理消息出错：', error.message))
       }
@@ -356,6 +359,12 @@ export function apply(ctx) {
     ownerQQ: () => cfg.ownerQQ,
   })
   core.dangerGuard = dangerGuard
+  approvalRelay = createApprovalRelay({ getConfig, deliver: (chatId, text) => hub.sendText(chatId, text), chatOfSession: (id) => hub.chatOfSession(id), log })
+  ctx.effect(() => {
+    let off = null
+    try { off = ctx.on('approval/request', (request, next) => approvalRelay.onRequest(request, next)) } catch (error) { log.debug('挂审批应答失败：', error.message) }
+    return () => { try { if (typeof off === 'function') off() } catch (error) {} }
+  }, 'aurabot: QQ 审批')
   ctx.effect(() => {
     let off = null
     try { off = ctx.on('tools/pre-execute', (exec, next) => dangerGuard.preExecute(exec, next)) } catch (error) { log.debug('挂危险命令确认失败：', error.message) }
@@ -408,13 +417,18 @@ export function apply(ctx) {
       const id = String(d.id || '')
       if (!id || approvalSeen.has(id)) return
       approvalSeen.set(id, Date.now())
+      // 等一下看 QQ 有没有问：问了就不用再通知；没问（比如审批没走到插件）照常通知，主人不会什么都收不到
+      if (approvalRelay?.handles(session?.id)) {
+        await new Promise((r) => setTimeout(r, 1500))
+        if (approvalRelay.askedRecently()) return
+      }
       if (approvalSeen.size > 200) { for (const [k, t] of approvalSeen) if (Date.now() - t > 6 * 3600_000) approvalSeen.delete(k) }
       let title = ''
       try { title = String(session?.title || session?.id || '') } catch (error) {}
       const lines = ['【要授权】' + (d.toolName || '未知工具')]
       if (d.reason) lines.push('原因：' + String(d.reason).slice(0, 300))
       if (title) lines.push('会话：' + title.slice(0, 60))
-      lines.push('这个得在 DSH 界面里点「批准」，QQ 这边没法代答。')
+      lines.push('这个会话的授权要在 DSH 界面里点「批准」。')
       await hub.sendText(`private:${cfg.ownerQQ}`, lines.join('\n'))
     } catch (error) {
       log.debug?.('审批通知失败：', error.message)
@@ -468,6 +482,7 @@ export function apply(ctx) {
     unloaded = true
     clearTimeout(firstWatch)
     dangerGuard?.dispose()
+    approvalRelay?.dispose()
     hub.dispose()
     bridge.dispose()
     mods.dispose()

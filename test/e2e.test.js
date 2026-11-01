@@ -1220,7 +1220,7 @@ test('DSH 要授权时通知主人私聊，同一请求只发一次（#136）', 
   await sleep(100)
   const sent = mock.calls.slice(before).filter((c) => c.action === 'send_private_msg' && String(c.params.user_id) === OWNER)
   assert.equal(sent.length, 1)
-  assert.match(JSON.stringify(sent[0].params.message), /要授权.*pwsh.*没法代答/)
+  assert.match(JSON.stringify(sent[0].params.message), /要授权.*pwsh.*DSH 界面/)
 })
 
 test('主人私聊里这一轮的说话人记录丢了，也按主人算（#90 兜底）', async () => {
