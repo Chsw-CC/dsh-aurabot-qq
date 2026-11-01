@@ -121,3 +121,19 @@ test('问过才算 askedRecently：没走到插件时通知照常发', async () 
   relay.handleReply('private:1', '1', '确认')
   await p
 })
+
+test('QQ 不问的 QQ 会话：网页一直没人点，到时间按没批准处理', async () => {
+  const relay = createApprovalRelay({
+    getConfig: () => ({ enabled: true, ownerQQ: '1', approvalViaQQ: false }),
+    deliver: async () => {}, chatOfSession: (id) => (id === 'dsh' ? '' : 'group:9'), timeoutMs: 20,
+  })
+  const never = () => new Promise(() => {})
+  const req = (id) => ({ toolName: 'bash', agent: { session: { id } } })
+  assert.equal(await relay.onRequest(req('qq'), never), 'unavailable')
+  assert.equal(await relay.onRequest(req('qq'), async () => 'allowed-once'), 'allowed-once')
+  let waited = false
+  const dsh = relay.onRequest(req('dsh'), () => new Promise((r) => setTimeout(() => { waited = true; r('rejected') }, 60)))
+  assert.equal(await dsh, 'rejected')
+  assert.ok(waited, 'DSH 自己的会话不加时限')
+})
+

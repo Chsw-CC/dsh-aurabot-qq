@@ -49,8 +49,20 @@ export function createApprovalRelay({ getConfig, deliver, chatOfSession, timeout
     return true
   }
 
+  /** QQ 不问的会话（开关关着、群聊、别人的私聊）：网页开着没人点时 DSH 会一直等，回合结束不了，后面的消息全堵死（#162）。 */
+  function withDeadline(request, next) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        log?.warn?.(`「${request.toolName}」的授权一直没人答，按没批准处理`)
+        resolve('unavailable')
+      }, timeoutMs)
+      Promise.resolve().then(next).then(resolve, reject).finally(() => clearTimeout(timer))
+    })
+  }
+
   function onRequest(request, next) {
-    if (!handles(request?.agent?.session?.id)) return next()
+    const sessionId = request?.agent?.session?.id
+    if (!handles(sessionId)) return !disposed && chatOfSession(sessionId) ? withDeadline(request, next) : next()
     lastAsked = Date.now()
     return new Promise((resolve) => {
       const item = { toolName: request.toolName, reason: request.reason, signal: request.signal, resolve, timer: null }
