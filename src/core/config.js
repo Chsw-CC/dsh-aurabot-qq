@@ -396,7 +396,7 @@ export function normalize(raw) {
   hb.dailyPosts = Array.isArray(hb.dailyPosts) ? hb.dailyPosts.slice(0, 5).map((p) => {
     const o = p && typeof p === 'object' ? p : {}
     const splitH = (v) => String(v ?? '').split(/[\s,，、]+/).map((x) => String(x).trim()).filter(Boolean)
-    const hash = (Array.isArray(o.hashtags) ? o.hashtags : splitH(o.hashtagsText)).map((x) => String(x).trim()).filter(Boolean).slice(0, 3)
+    const hash = (Array.isArray(o.hashtags) ? o.hashtags : splitH(o.hashtagsText)).map((x) => String(x).trim()).filter(Boolean).slice(0, 4)
     return {
       style: ['diary', 'news', 'mix', 'deal'].includes(o.style) ? o.style : '',
       topic: /^\d{3,7}$/.test(String(o.topic ?? '')) ? String(o.topic) : '',
@@ -406,7 +406,9 @@ export function normalize(raw) {
       wordsMax: Math.round(num(o.wordsMax, 0, 0, 3000)),
       hint: String(o.hint || '').trim().slice(0, 120),
     }
-  }).filter((p) => p.style || p.topic || p.hashtags.length || p.hint || p.wordsMin || p.wordsMax) : []
+  }) : []   // ⚠ 不能在这里过滤全空项：排期是按下标取的（module 侧 currentPostPlan 用 postsToday() 索引），
+             //    过滤掉「第 1 篇留空跟全局、第 2 篇单独配」里的空项，会让第 2 篇的配置被当成第 1 篇用。
+             //    空项就代表「这一篇走全局设置」，原样保留位置。
   hb.offPeakOnly = bool(hb.offPeakOnly, false)
   hb.peakStartAM = num(hb.peakStartAM, 9, 0, 23)
   hb.peakEndAM = num(hb.peakEndAM, 12, 0, 24)
