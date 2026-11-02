@@ -2495,7 +2495,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           right: h('div', { className: 'ab-flex' },
             h(Btn, { small: true, kind: 'primary', onClick: act('/heybox/acts/refresh', 'acts'), disabled: !!busy }, busy === 'acts' ? '刷新中…' : '刷新话题'),
             h(Btn, { small: true, onClick: load }, '重新读')),
-          desc: '写帖要挂话题就从这里挑（带「活动」角标的优先，有奖励）。她发帖时话题是以**纯文本名字**提交的，服务端自己匹配成话题。传对象（name+hashtag_id）会让发帖直接失败。',
+          desc: '写帖要挂话题就从这里挑（带「活动」角标的优先，有奖励）。活动和普通话题**可以一起挂**：活动最多 1 个 + 普通最多 3 个（共 4 个）。她发帖时话题是以**纯文本名字**提交的，服务端自己匹配成话题；传对象（name+hashtag_id）会让发帖直接失败。',
         },
           (() => {
             const acts = s && (s.actsList || [])
