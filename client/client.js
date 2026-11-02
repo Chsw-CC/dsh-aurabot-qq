@@ -2333,6 +2333,8 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
 
 
     const HEYBOX_KIND = { browse: '逛了一圈', like: '点了赞', comment: '发了评论', post: '发了帖', delete: '删了帖' }
+    // 发帖风格的中文名（面板和排期卡片共用，避免两处写岔）
+    const HEYBOX_STYLE_LABEL = { diary: '大肥鱼日记', news: '热搜文', mix: '肥鱼热搜', deal: '每日羊毛' }
 
 
     /** 「小黑盒」页：账号、逛法、额度、热榜预览、发帖分区与自检提醒、逛过什么。 */
@@ -2386,7 +2388,7 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
       return h('div', { className: 'ab-grid' },
         h(Card, {
           title: '刷小黑盒', right: f.sw('heybox.enabled'),
-          desc: '用你的小黑盒账号逛游戏社区：定时看信息流、读帖子正文和热评，按性格决定点不点赞、评不评论；她自己会写帖子（先看热榜找角度，再看社区高赞帖在聊什么，配图走小黑盒图床），发完把链接报给你。写操作各有权限（「权限」页，默认仅主人），每天有额度上限。',
+          desc: '用你的小黑盒账号逛游戏社区：定时看信息流、读帖子正文和热评，按性格决定点不点赞、评不评论；她自己会写帖子（先看热榜找角度，再看社区高赞帖在聊什么）。配图按正文字数自动配：500 字以内文末 1 张、500-1000 字首段后加 1 张、1000 字以上每多 1000 字文中再加 1 张，每张优先按内容和心情现画，画不出来才用表情包库兜底。写操作各有权限（「权限」页，默认仅主人），每天有额度上限。',
         },
           h(Row, { label: '小黑盒账号', hint: '从浏览器登录后把整串 Cookie 粘到下面。pkey 必须有；想让它能点赞评论发帖，还要有 x_xhh_tokenid（F12 → Application → Cookies 里能复制到）' },
             h('div', null,
@@ -2421,18 +2423,28 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
           h(Row, { label: '点赞' }, f.num('heybox.likeDaily', { min: 0, max: 60 }), h('span', { className: 'ab-muted' }, '次/天')),
           h(Row, { label: '评论' }, f.num('heybox.commentDaily', { min: 0, max: 30 }), h('span', { className: 'ab-muted' }, '条/天')),
           h(Row, { label: '发帖' }, f.num('heybox.maxPostsPerDay', { min: 0, max: 5 }), h('span', { className: 'ab-muted' }, '篇/天（建议别超过 3）')),
-          h(Row, { label: '发帖风格', hint: '她写帖时按这个口吻来。也可以让她单次换：跟她说「用日记风格发一篇」' },
+          h(Row, { label: '发帖风格', hint: '她写帖时按这个口吻来。也可以让她单次换：跟她说「用日记风格发一篇」。括号里是这种风格自带的字数，排期里填了字数就以排期为准' },
             f.select('heybox.postStyle', [
               { value: 'diary', label: '大肥鱼日记', desc: '第一人称随手记，跟空间日记一个味，120-300字' },
               { value: 'news', label: '热搜文', desc: '报道新闻体，摆具体数字，200-800字' },
               { value: 'mix', label: '肥鱼热搜', desc: '用日记口吻写热搜，150-500字' },
+              { value: 'deal', label: '每日羊毛', desc: '折扣/优惠盘点，摆价格和史低，偏实用' },
             ], { width: 220 })),
-          h(Row, { label: '发帖默认分区', hint: '文章帖必须挂分区，否则会报「请添加分区」。这三个是实测存在的' },
-            f.select('heybox.defaultTopic', [
-              { value: 7214, label: '盒友杂谈', desc: '最常用，什么都能聊' },
-              { value: 18745, label: '数码硬件', desc: '显卡、笔记本、外设' },
-              { value: 806933, label: 'AI', desc: 'AI 相关，容易涨浏览' },
-            ], { width: 200 })),
+          h(Row, { label: '发帖默认分区', hint: s && (s.topicsList || []).length ? '文章帖必须挂分区，否则会报「请添加分区」。下面是实测拉到的全部分区' : '文章帖必须挂分区，否则会报「请添加分区」；点「刷新分区」能拉到全部' },
+            f.select('heybox.defaultTopic',
+              // 优先用接口拉到的真实分区全表；拉不到才退回这几个保底
+              (s && (s.topicsList || []).length)
+                ? (s.topicsList || []).map((t) => ({
+                  value: t.id,
+                  label: t.name,
+                  desc: [t.game ? '游戏分区' : '综合分区', t.hot ? '热度 ' + t.hot : ''].filter(Boolean).join(' · '),
+                }))
+                : [
+                  { value: 7214, label: '盒友杂谈', desc: '最常用，什么都能聊' },
+                  { value: 18745, label: '数码硬件', desc: '显卡、笔记本、外设' },
+                  { value: 806933, label: 'AI', desc: 'AI 相关，容易涨浏览' },
+                ],
+              { width: 220 })),
           s ? h(Row, { label: '今天已经用掉', hint: '到 0 就等明天，或者手动清零（重启一次会话不会重置）' },
             h('div', { className: 'ab-flex' },
               h('span', { className: 'ab-small ab-muted' },
@@ -2442,6 +2454,70 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
                 ' · 帖 ' + (quota.post || 0) + '/' + (limits.maxPostsPerDay || 0)),
               h(Btn, { small: true, kind: 'ghost', onClick: act('/heybox/clear-quota', 'quota') }, busy === 'quota' ? '清零中…' : '清零')))
             : null,
+        ),
+        // ── 今天发什么（排期）──────────────────────────────────
+        // state 早就有 postPlan，但面板一直没显示：她按这个取每篇的风格/分区/话题/字数。
+        h(Card, {
+          title: '今天发什么（排期）',
+          right: h('div', { className: 'ab-flex' },
+            h(Btn, { small: true, onClick: load }, '刷新')),
+          desc: '按今天已发了几篇，依次取下面这几项的「风格 / 分区 / 话题 / 字数」。字数低于下限会被直接拒发（不是警告，是发不出去），所以这里填的数要跟实际想发的长度对得上。',
+        },
+          !s ? h(Empty, { icon: '⏳', text: '加载中…' })
+            : !(s.postPlan && s.postPlan.configured)
+              ? h(Empty, { icon: '📅', text: '还没配排期：她发帖会走上面的默认风格和默认字数。' })
+              : h('div', { className: 'ab-list' }, ((s.postPlan && s.postPlan.items) || []).map((it) => h('div', { key: it.index, className: 'ab-li' },
+                h('div', { className: 'meta' },
+                  '第 ' + it.index + ' 篇',
+                  it.done ? h('span', { style: { color: 'var(--ab-ok)', marginLeft: 4 } }, '✓ 已发') : null),
+                h('div', { className: 'body' },
+                  h('div', null,
+                    h('span', { className: 'ab-badge' }, it.empty ? '跟全局' : (HEYBOX_STYLE_LABEL[it.style] || it.style || '默认')),
+                    h('span', { className: 'ab-muted' }, '  ·  分区 ' + (it.topic || '默认') + '  ·  ' + (it.wordsMin || '?') + '-' + (it.wordsMax || '?') + ' 字')),
+                  (it.hashtagsText || (it.hashtags || []).join(', '))
+                    ? h('div', { className: 'ab-muted' }, '话题：' + (it.hashtagsText || (it.hashtags || []).join(', ')))
+                    : null,
+                  it.hint ? h('div', { className: 'ab-muted' }, '提示：' + it.hint) : null))),
+              ),
+          (s && s.postPlan && s.postPlan.current)
+            ? h('div', { className: 'ab-note', style: { marginTop: 8 } },
+              '下一篇（第 ' + (s.postPlan.current.index || '?') + ' 篇）会按：' +
+              (HEYBOX_STYLE_LABEL[s.postPlan.current.style] || s.postPlan.current.style || '默认风格') +
+              ' / ' + (s.postPlan.current.wordsMin || '?') + '-' + (s.postPlan.current.wordsMax || '?') + ' 字' +
+              (s.postPlan.current.hashtagsText ? ' / 话题「' + s.postPlan.current.hashtagsText + '」' : ''))
+            : null,
+        ),
+        // ── 话题库 ────────────────────────────────────────────
+        // state 早就返回 actsList（活动在前、带热度），面板之前完全没用到。
+        // 这里只做「看」，方便直接告诉她下次挂哪个。
+        h(Card, {
+          title: '话题库',
+          right: h('div', { className: 'ab-flex' },
+            h(Btn, { small: true, kind: 'primary', onClick: act('/heybox/acts/refresh', 'acts'), disabled: !!busy }, busy === 'acts' ? '刷新中…' : '刷新话题'),
+            h(Btn, { small: true, onClick: load }, '重新读')),
+          desc: '写帖要挂话题就从这里挑（带「活动」角标的优先，有奖励）。她发帖时话题是以**纯文本名字**提交的，服务端自己匹配成话题。传对象（name+hashtag_id）会让发帖直接失败。',
+        },
+          (() => {
+            const acts = s && (s.actsList || [])
+            if (!acts || !acts.length) return h(Empty, { icon: '🏷️', text: '还没拉到话题。点右上角「刷新话题」（要扫十几页信息流，慢一点）。' })
+            const actOnly = acts.filter((x) => x.isAct)
+            const plainOnly = acts.filter((x) => !x.isAct)
+            const line = (x) => h('div', { key: 'a' + x.id, className: 'ab-li' },
+              h('div', { className: 'body' },
+                h('div', null,
+                  h('span', { style: { fontWeight: 600 } }, x.name),
+                  x.isAct ? h('span', { className: 'ab-badge', style: { marginLeft: 6 } }, '活动') : null,
+                  x.contentNum ? h('span', { className: 'ab-muted', style: { marginLeft: 6 } }, '热度 ' + x.contentNum) : null),
+                x.actTitle ? h('div', { className: 'ab-muted' }, x.actTitle) : null))
+            return h('div', null,
+              s && s.actsCache
+                ? h('div', { className: 'ab-small ab-muted', style: { marginBottom: 6 } },
+                  '共 ' + (s.actsCache.count || 0) + ' 个（活动 ' + (s.actsCache.actCount || 0) + '，普通 ' + (s.actsCache.plainCount || 0) + '）' +
+                  (s.actsCache.cached ? ' · 今天已缓存' : ' · 缓存是 ' + (s.actsCache.date || '旧的')))
+                : null,
+              actOnly.length ? h('div', { style: { marginBottom: 10 } }, h('div', { className: 'ab-small', style: { fontWeight: 600, marginBottom: 4 } }, '创作活动（优先挂，有奖励）'), h('div', { className: 'ab-list' }, actOnly.slice(0, 8).map(line))) : null,
+              plainOnly.length ? h('div', null, h('div', { className: 'ab-small', style: { fontWeight: 600, marginBottom: 4 } }, '普通话题（按热度）'), h('div', { className: 'ab-list' }, plainOnly.slice(0, 12).map(line))) : null)
+          })(),
         ),
         h(Card, {
           title: '热榜预览', right: h('div', { className: 'ab-flex' },
@@ -2463,11 +2539,17 @@ h(Card, { title: '群里什么时候必回', desc: '被 @、有人引用回复�
               '① 先看热榜挑题（不许跳过），挑不出来就说今天没合适的，别硬凑。',
               '② 再看社区高赞帖在聊什么角度，可以借角度但用自己的话。',
               '③ 素材里必须有具体的东西：价格、销量、时长、机制名、star 增速——没具体信息就是水文。',
-              '④ 标题别和正文第一行重复；不编造第一人称经历；正文 200-800 字；配图越多越好。',
-              '⑤ 不碰政治、医疗法律建议、评价真人、判断价格是否合理；读一遍像不像人话（转折词堆砌就是 AI 腔）。',
+              '④ 标题别和正文第一行重复；不编造第一人称经历；正文要达到排期要求的字数（低于下限会被直接拒发）。',
+              '⑤ 配图不用ta操心：不传图时按字数自动配（≤500 字文末 1 张、500-1000 字首段后+文末、1000 字以上每多 1000 字文中再加），画不出来才用表情包库兜底；一张都拿不到就拒发。',
+              '⑥ 不碰政治、医疗法律建议、评价真人、判断价格是否合理；读一遍像不像人话（转折词堆砌就是 AI 腔）。',
             ].join('\n')),
           h('div', { className: 'ab-note warn' },
-            '格式上的坑（已修在内核里）：帖子类型必须是「文章」(link_tag=11) 才能解析 HTML 并把图插在文字中间；分区 id 必须是真实存在的 7214 / 18745 / 806933，乱填会一直报「错误的帖子类型」。'),
+            [
+              '格式上的坑（已修在内核里）：',
+              '· 帖子类型必须是「文章」(link_tag=11) 才能解析 HTML 并把图插在文字中间；分区 id 必须是真实存在的，乱填会报「错误的帖子类型」。',
+              '· 话题（hashtag）必须传**话题名字**的纯文本数组，不能传 {name,hashtag_id} 对象——对象会让发帖直接 HTTP 500。话题现在写进帖子的 content_tags（style_type=2），不在 hashtags 字段，别拿那个字段当验收标准。',
+              '· 图片必须按真实宽高上传；以前写死 1000x600，方图会被压扁。',
+            ].join('\n')),
         ),
         h(Card, {
           title: '她逛过什么', right: h('div', { className: 'ab-flex' },
